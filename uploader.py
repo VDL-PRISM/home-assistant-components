@@ -29,6 +29,7 @@ DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
 
 CONF_INTERVAL = 'interval'
+CONF_HOME_ID = 'home_id'
 
 CONF_LOCAL_HOST = 'local_host'
 CONF_LOCAL_PORT = 'local_port'
@@ -54,7 +55,9 @@ def setup(hass, config):
     """ Setup uploader component. """
     from influxdb import exceptions
 
-    if not validate_config(config, {DOMAIN: ['local_host', 'remote_host']}, _LOGGER):
+    if not validate_config(config, {DOMAIN: [CONF_LOCAL_HOST,
+                                             CONF_REMOTE_HOST,
+                                             CONF_HOME_ID]}, _LOGGER):
         return False
 
     conf = config[DOMAIN]
@@ -77,6 +80,7 @@ def setup(hass, config):
     remote_verify_ssl = util.convert(conf.get(CONF_REMOTE_VERIFY_SSL), bool,
                               DEFAULT_VERIFY_SSL)
 
+    home_id = conf[CONF_HOME_ID]
     interval = util.convert(conf.get(CONF_INTERVAL), int, DEFAULT_INTERVAL)
 
 
@@ -98,7 +102,7 @@ def setup(hass, config):
     try:
         uploader = Uploader(remote_host, remote_port, remote_database,
                             remote_username, remote_password, remote_ssl,
-                            remote_verify_ssl)
+                            remote_verify_ssl, home_id)
     except exceptions.InfluxDBClientError as exc:
         _LOGGER.error("Remote database host is not accessible due to '%s', please "
                       "check your entries in the configuration file and that"
@@ -164,12 +168,14 @@ class Downloader:
 
 class Uploader:
     def __init__(self, host, port, database, username, password, ssl,
-                 verify_ssl):
+                 verify_ssl, home_id):
         from influxdb import InfluxDBClient
 
         self.client = InfluxDBClient(host=host, port=port, username=username,
                                 password=password, database=database,
                                 ssl=ssl, verify_ssl=verify_ssl)
+        self.home_id = home_id
+
         # Make sure client can connect
         self.client.query("select * from /.*/ LIMIT 1;")
 
@@ -201,6 +207,9 @@ class Uploader:
             time = v[time_index]
             value = v[value_index]
             tags = {columns[i]: v[i] for i in tag_indexes}
+
+            # Add home id to tags
+            tags['home_id'] = self.home_id
 
             try:
                 value = float(value)
