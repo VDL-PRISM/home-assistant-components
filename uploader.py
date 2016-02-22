@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "uploader"
 DEPENDENCIES = []
-REQUIREMENTS = ['influxdb==2.10.0']
+REQUIREMENTS = ['influxdb==2.12.0']
 
 DEFAULT_INTERVAL = 120
 DEFAULT_PORT = 8086
@@ -175,9 +175,6 @@ class Uploader:
                                 password=password, database=database,
                                 ssl=ssl, verify_ssl=verify_ssl)
         self.home_id = home_id
-
-        # Make sure client can connect
-        self.client.query("select * from /.*/ LIMIT 1;")
 
     def upload_data(self, data):
         if data is None or 'series' not in data.raw:
