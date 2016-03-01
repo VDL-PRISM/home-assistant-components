@@ -208,6 +208,11 @@ class Uploader:
             # Add home id to tags
             tags['home_id'] = self.home_id
 
+            if value is None:
+                # Skip over all None values
+                continue
+
+            # Try to convert value
             try:
                 value = float(value)
             except (ValueError, TypeError):
