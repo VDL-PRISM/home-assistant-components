@@ -210,7 +210,7 @@ class Uploader:
 
             try:
                 value = float(value)
-            except ValueError:
+            except (ValueError, TypeError):
                 pass
 
             yield {"measurement": name,
