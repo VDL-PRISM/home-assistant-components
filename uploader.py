@@ -2,18 +2,15 @@
 custom_components.uploader
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 """
-import time
 import logging
 import itertools
-import requests
 from datetime import timedelta
+import requests
 
 import homeassistant.util as util
 from homeassistant.helpers import validate_config
 from homeassistant.helpers.event import track_point_in_time
 
-import homeassistant.loader as loader
-import homeassistant.components as core
 import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,8 +52,7 @@ def setup(hass, config):
     """ Setup uploader component. """
     from influxdb import exceptions
 
-    if not validate_config(config, {DOMAIN: [CONF_LOCAL_HOST,
-                                             CONF_REMOTE_HOST,
+    if not validate_config(config, {DOMAIN: [CONF_LOCAL_HOST, CONF_REMOTE_HOST,
                                              CONF_HOME_ID]}, _LOGGER):
         return False
 
@@ -64,36 +60,38 @@ def setup(hass, config):
 
     local_host = conf[CONF_LOCAL_HOST]
     local_port = util.convert(conf.get(CONF_LOCAL_PORT), int, DEFAULT_PORT)
-    local_database = util.convert(conf.get(CONF_LOCAL_DB_NAME), str, DEFAULT_DATABASE)
+    local_database = util.convert(
+        conf.get(CONF_LOCAL_DB_NAME), str, DEFAULT_DATABASE)
     local_username = util.convert(conf.get(CONF_LOCAL_USERNAME), str)
     local_password = util.convert(conf.get(CONF_LOCAL_PASSWORD), str)
     local_ssl = util.convert(conf.get(CONF_LOCAL_SSL), bool, DEFAULT_SSL)
-    local_verify_ssl = util.convert(conf.get(CONF_LOCAL_VERIFY_SSL), bool,
-                              DEFAULT_VERIFY_SSL)
+    local_verify_ssl = util.convert(
+        conf.get(CONF_LOCAL_VERIFY_SSL), bool, DEFAULT_VERIFY_SSL)
 
     remote_host = conf[CONF_REMOTE_HOST]
     remote_port = util.convert(conf.get(CONF_REMOTE_PORT), int, DEFAULT_PORT)
-    remote_database = util.convert(conf.get(CONF_REMOTE_DB_NAME), str, DEFAULT_DATABASE)
+    remote_database = util.convert(
+        conf.get(CONF_REMOTE_DB_NAME), str, DEFAULT_DATABASE)
     remote_username = util.convert(conf.get(CONF_REMOTE_USERNAME), str)
     remote_password = util.convert(conf.get(CONF_REMOTE_PASSWORD), str)
     remote_ssl = util.convert(conf.get(CONF_REMOTE_SSL), bool, DEFAULT_SSL)
-    remote_verify_ssl = util.convert(conf.get(CONF_REMOTE_VERIFY_SSL), bool,
-                              DEFAULT_VERIFY_SSL)
+    remote_verify_ssl = util.convert(
+        conf.get(CONF_REMOTE_VERIFY_SSL), bool, DEFAULT_VERIFY_SSL)
 
     home_id = conf[CONF_HOME_ID]
     interval = util.convert(conf.get(CONF_INTERVAL), int, DEFAULT_INTERVAL)
 
-
-    next_time = lambda: dt_util.now() + timedelta(seconds=interval)
+    def next_time():
+        return dt_util.now() + timedelta(seconds=interval)
 
     try:
         downloader = Downloader(local_host, local_port, local_database,
                                 local_username, local_password, local_ssl,
                                 local_verify_ssl)
     except exceptions.InfluxDBClientError as exc:
-        _LOGGER.error("Local database host is not accessible due to '%s', please "
-                      "check your entries in the configuration file and that"
-                      " the database exists and is READ/WRITE.", exc)
+        _LOGGER.error("Local database host is not accessible due to '%s', "
+                      "please check your entries in the configuration file "
+                      "and that the database exists and is READ/WRITE.", exc)
         return False
     except requests.exceptions.RequestException as exc:
         _LOGGER.error("Unable to connect to database: %s", exc)
@@ -104,9 +102,9 @@ def setup(hass, config):
                             remote_username, remote_password, remote_ssl,
                             remote_verify_ssl, home_id)
     except exceptions.InfluxDBClientError as exc:
-        _LOGGER.error("Remote database host is not accessible due to '%s', please "
-                      "check your entries in the configuration file and that"
-                      " the database exists and is READ/WRITE.", exc)
+        _LOGGER.error("Remote database host is not accessible due to '%s', "
+                      "please check your entries in the configuration file "
+                      "and that the database exists and is READ/WRITE.", exc)
         return False
     except requests.exceptions.RequestException as exc:
         _LOGGER.error("Unable to connect to database: %s", exc)
@@ -117,7 +115,8 @@ def setup(hass, config):
             data = downloader.get_data()
         except exceptions.InfluxDBClientError as exc:
             data = None
-            _LOGGER.error("Exception while getting data from local database: %s", exc)
+            _LOGGER.error(
+                "Exception while getting data from local database: %s", exc)
         except requests.exceptions.RequestException as exc:
             data = None
             _LOGGER.error("Unable to connect to local database: %s", exc)
@@ -126,7 +125,8 @@ def setup(hass, config):
             success = uploader.upload_data(data)
         except exceptions.InfluxDBClientError as exc:
             success = False
-            _LOGGER.error("Exception while uploading data to remote database: %s", exc)
+            _LOGGER.error(
+                "Exception while uploading data to remote database: %s", exc)
         except requests.exceptions.RequestException as exc:
             success = False
             _LOGGER.error("Unable to connect to remote database: %s", exc)
@@ -135,7 +135,8 @@ def setup(hass, config):
             try:
                 downloader.delete_data()
             except exceptions.InfluxDBClientError as exc:
-                _LOGGER.error("Exception while deleting data from database: %s", exc)
+                _LOGGER.error(
+                    "Exception while deleting data from database: %s", exc)
             except requests.exceptions.RequestException as exc:
                 _LOGGER.error("Unable to connect to local database: %s", exc)
 
@@ -150,9 +151,13 @@ class Downloader:
                  verify_ssl):
         from influxdb import InfluxDBClient
 
-        self.client = InfluxDBClient(host=host, port=port, username=username,
-                                password=password, database=database,
-                                ssl=ssl, verify_ssl=verify_ssl)
+        self.client = InfluxDBClient(host=host,
+                                     port=port,
+                                     username=username,
+                                     password=password,
+                                     database=database,
+                                     ssl=ssl,
+                                     verify_ssl=verify_ssl)
         # Make sure client can connect
         self.client.query("select * from /.*/ LIMIT 1;")
         self.database = database
@@ -171,9 +176,13 @@ class Uploader:
                  verify_ssl, home_id):
         from influxdb import InfluxDBClient
 
-        self.client = InfluxDBClient(host=host, port=port, username=username,
-                                password=password, database=database,
-                                ssl=ssl, verify_ssl=verify_ssl)
+        self.client = InfluxDBClient(host=host,
+                                     port=port,
+                                     username=username,
+                                     password=password,
+                                     database=database,
+                                     ssl=ssl,
+                                     verify_ssl=verify_ssl)
         self.home_id = home_id
 
     def upload_data(self, data):
@@ -184,7 +193,8 @@ class Uploader:
         data = data.raw
 
         _LOGGER.info("Uploading data")
-        formated_data = [self._format_data(**series) for series in data['series']]
+        formated_data = [self._format_data(**series)
+                         for series in data['series']]
         formated_data = itertools.chain.from_iterable(formated_data)
         result = self.client.write_points(formated_data)
 
@@ -193,7 +203,6 @@ class Uploader:
             return False
 
         return True
-
 
     def _format_data(self, name, columns, values):
         time_index = columns.index('time')
@@ -222,6 +231,3 @@ class Uploader:
                    "tags": tags,
                    "time": time,
                    "fields": {"value": value}}
-
-
-
