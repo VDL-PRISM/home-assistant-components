@@ -45,7 +45,6 @@ CONF_REMOTE_SSL = 'remote_ssl'
 CONF_REMOTE_VERIFY_SSL = 'remote_verify_ssl'
 
 GET_QUERY = "select * from /.*/"
-DELETE_QUERY = "drop database {db}; create database {db}"
 
 
 def setup(hass, config):
@@ -122,23 +121,12 @@ def setup(hass, config):
             _LOGGER.error("Unable to connect to local database: %s", exc)
 
         try:
-            success = uploader.upload_data(data)
+            uploader.upload_data(data)
         except exceptions.InfluxDBClientError as exc:
-            success = False
             _LOGGER.error(
                 "Exception while uploading data to remote database: %s", exc)
         except requests.exceptions.RequestException as exc:
-            success = False
             _LOGGER.error("Unable to connect to remote database: %s", exc)
-
-        if success:
-            try:
-                downloader.delete_data()
-            except exceptions.InfluxDBClientError as exc:
-                _LOGGER.error(
-                    "Exception while deleting data from database: %s", exc)
-            except requests.exceptions.RequestException as exc:
-                _LOGGER.error("Unable to connect to local database: %s", exc)
 
         track_point_in_time(hass, action, next_time())
 
@@ -165,10 +153,6 @@ class Downloader:
     def get_data(self):
         _LOGGER.info("Getting data")
         return self.client.query(GET_QUERY)
-
-    def delete_data(self):
-        _LOGGER.info("Delete data")
-        return self.client.query(DELETE_QUERY.format(db=self.database))
 
 
 class Uploader:
