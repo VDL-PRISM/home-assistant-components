@@ -2,6 +2,7 @@
 custom_components.uploader
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 """
+import time
 import logging
 import itertools
 from datetime import timedelta
@@ -24,6 +25,8 @@ DEFAULT_PORT = 8086
 DEFAULT_DATABASE = 'home_assistant'
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
+DEFAULT_REMOTE_RETRIES = 60
+DEFAULT_REMOTE_RETRY_TIME = 30
 
 CONF_INTERVAL = 'interval'
 CONF_HOME_ID = 'home_id'
@@ -43,6 +46,8 @@ CONF_REMOTE_USERNAME = 'remote_username'
 CONF_REMOTE_PASSWORD = 'remote_password'
 CONF_REMOTE_SSL = 'remote_ssl'
 CONF_REMOTE_VERIFY_SSL = 'remote_verify_ssl'
+CONF_REMOTE_RETRIES = "remote_retries"
+CONF_REMOTE_RETRY_TIME = "remote_retry_time"
 
 GET_QUERY = "select * from /.*/"
 
@@ -76,27 +81,15 @@ def setup(hass, config):
     remote_ssl = util.convert(conf.get(CONF_REMOTE_SSL), bool, DEFAULT_SSL)
     remote_verify_ssl = util.convert(
         conf.get(CONF_REMOTE_VERIFY_SSL), bool, DEFAULT_VERIFY_SSL)
-
+    remote_retries = util.convert(
+        conf.get(CONF_REMOTE_RETRIES), int, DEFAULT_REMOTE_RETRIES)
+    remote_retry_time = util.convert(
+        conf.get(CONF_REMOTE_RETRY_TIME), int, DEFAULT_REMOTE_RETRY_TIME)
     home_id = conf[CONF_HOME_ID]
     interval = util.convert(conf.get(CONF_INTERVAL), int, DEFAULT_INTERVAL)
 
-    def next_time():
-        return dt_util.now() + timedelta(seconds=interval)
-
     try:
-        downloader = Downloader(local_host, local_port, local_database,
-                                local_username, local_password, local_ssl,
-                                local_verify_ssl)
-    except exceptions.InfluxDBClientError as exc:
-        _LOGGER.error("Local database host is not accessible due to '%s', "
-                      "please check your entries in the configuration file "
-                      "and that the database exists and is READ/WRITE.", exc)
-        return False
-    except requests.exceptions.RequestException as exc:
-        _LOGGER.error("Unable to connect to database: %s", exc)
-        return False
-
-    try:
+        _LOGGER.info("Connecting to remote database")
         uploader = Uploader(remote_host, remote_port, remote_database,
                             remote_username, remote_password, remote_ssl,
                             remote_verify_ssl, home_id)
@@ -104,10 +97,45 @@ def setup(hass, config):
         _LOGGER.error("Remote database host is not accessible due to '%s', "
                       "please check your entries in the configuration file "
                       "and that the database exists and is READ/WRITE.", exc)
+        # Since this is the remote database, there is nothing that can be done,
+        # so just give up.
         return False
     except requests.exceptions.RequestException as exc:
-        _LOGGER.error("Unable to connect to database: %s", exc)
+        _LOGGER.error("Unable to connect to remote database: %s", exc)
+        # Since this is the remote database, there is nothing that can be done,
+        # so just give up.
         return False
+
+    # Sometimes the local InfluxDB takes awhile to start up. We will try a
+    # few times before giving up.
+    _LOGGER.info("Connecting to local database")
+    for i in range(remote_retries):
+        _LOGGER.info("Trying %s out of %s", i + 1, remote_retries)
+        try:
+            downloader = Downloader(local_host, local_port, local_database,
+                                    local_username, local_password, local_ssl,
+                                    local_verify_ssl)
+            break
+        except exceptions.InfluxDBClientError as exc:
+            _LOGGER.warn("Local database host is not accessible due to '%s', "
+                         "please check your entries in the configuration file "
+                         "and that the database exists and is READ/WRITE.",
+                         exc)
+        except requests.exceptions.RequestException as exc:
+            _LOGGER.warn("Unable to connect to local database: %s", exc)
+
+        _LOGGER.info("Retrying again in %s seconds", remote_retry_time)
+        time.sleep(remote_retry_time)
+
+    else:
+        # All of the retries didn't work, so fail
+        _LOGGER.error("Unable to connect to database or the database is not"
+                      " accessible after %s retries (%s second(s) apart).",
+                      remote_retries, remote_retry_time)
+        return False
+
+    def next_time():
+        return dt_util.now() + timedelta(seconds=interval)
 
     def action(now):
         try:
@@ -158,7 +186,7 @@ class Downloader:
 class Uploader:
     def __init__(self, host, port, database, username, password, ssl,
                  verify_ssl, home_id):
-        from influxdb import InfluxDBClient
+        from influxdb import InfluxDBClient, exceptions
 
         self.client = InfluxDBClient(host=host,
                                      port=port,
@@ -168,6 +196,18 @@ class Uploader:
                                      ssl=ssl,
                                      verify_ssl=verify_ssl)
         self.home_id = home_id
+
+        # Make sure client can connect
+        try:
+            self.client.query("select * from /.*/ LIMIT 1;")
+        except exceptions.InfluxDBClientError as exc:
+            if exc.code == 401:
+                # This is okay because we are trying to read from the database,
+                # but we might only have write permissions. At least we know
+                # that the database exists and we can connect to it.
+                pass
+            else:
+                raise exc
 
     def upload_data(self, data):
         if data is None or 'series' not in data.raw:
