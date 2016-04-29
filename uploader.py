@@ -100,6 +100,11 @@ def setup(hass, config):
         # Since this is the remote database, there is nothing that can be done,
         # so just give up.
         return False
+    except exceptions.InfluxDBServerError as exc:
+        _LOGGER.error("Unable to connect with server: %s", exc)
+        # Since this is the remote database, there is nothing that can be done,
+        # so just give up.
+        return False
     except requests.exceptions.RequestException as exc:
         _LOGGER.error("Unable to connect to remote database: %s", exc)
         # Since this is the remote database, there is nothing that can be done,
@@ -151,6 +156,9 @@ def setup(hass, config):
         try:
             uploader.upload_data(data)
         except exceptions.InfluxDBClientError as exc:
+            _LOGGER.error(
+                "Exception while uploading data to remote database: %s", exc)
+        except exceptions.InfluxDBServerError as exc:
             _LOGGER.error(
                 "Exception while uploading data to remote database: %s", exc)
         except requests.exceptions.RequestException as exc:
