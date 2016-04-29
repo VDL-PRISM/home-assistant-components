@@ -220,7 +220,7 @@ class Uploader:
         formated_data = [self._format_data(**series)
                          for series in data['series']]
         formated_data = itertools.chain.from_iterable(formated_data)
-        result = self.client.write_points(formated_data)
+        result = self.client.write_points(formated_data, batch_size=10000)
 
         if not result:
             _LOGGER.error("Unable to upload data to remote database")
