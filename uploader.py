@@ -198,7 +198,6 @@ class Downloader:
         # Check to see if the value is already in the database
         last_time = self.client.query(
             "select value from last_time")
-        _LOGGER.info("last_downloaded: %s", last_time)
 
         if len(last_time) == 0:
             # If not, use the oldest value in the database
@@ -209,6 +208,7 @@ class Downloader:
             assert len(last_time) == 1
             self._last_time = list(
                 last_time.get_points('last_time'))[0]['value']
+            _LOGGER.info("last value uploaded: %s", self._last_time)
 
         return self._last_time
 
@@ -264,19 +264,23 @@ class Uploader:
     def upload_data(self, data):
         data = data.raw
 
-        _LOGGER.info("Uploading data")
-        formated_data = [self._format_data(**series)
-                         for series in data['series']]
-        formated_data = itertools.chain.from_iterable(formated_data)
-        formated_data = list(formated_data)  # Necessary because of batch_size
-        result = self.client.write_points(formated_data, batch_size=10000)
+        formatted_data = [self._format_data(**series)
+                          for series in data['series']]
+        formatted_data = itertools.chain.from_iterable(formatted_data)
+        # Necessary because of batch_size parameter when sending data
+        formatted_data = list(formatted_data)
+
+        _LOGGER.info("Uploading %s values", len(formatted_data))
+        result = self.client.write_points(formatted_data, batch_size=10000)
 
         if not result:
             from influxdb.exceptions import InfluxDBClientError
             _LOGGER.error("Unable to upload data to remote database")
             raise InfluxDBClientError
+        else:
+            _LOGGER.info("Done uploading data")
 
-        last_time = formated_data[-1]['time']
+        last_time = formatted_data[-1]['time']
         return last_time
 
     def _format_data(self, name, columns, values):
