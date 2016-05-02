@@ -9,7 +9,6 @@ from datetime import timedelta
 import requests
 import voluptuous as vol
 
-import homeassistant.util as util
 from homeassistant.helpers.event import track_point_in_time
 import homeassistant.helpers.config_validation as cv
 
@@ -26,8 +25,8 @@ DEFAULT_PORT = 8086
 DEFAULT_DATABASE = 'home_assistant'
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
-DEFAULT_REMOTE_RETRIES = 60
-DEFAULT_REMOTE_RETRY_TIME = 30
+DEFAULT_RETRIES = 60
+DEFAULT_RETRY_TIME = 30
 
 CONF_INTERVAL = 'interval'
 CONF_HOME_ID = 'home_id'
@@ -39,6 +38,8 @@ CONF_LOCAL_USERNAME = 'local_username'
 CONF_LOCAL_PASSWORD = 'local_password'
 CONF_LOCAL_SSL = 'local_ssl'
 CONF_LOCAL_VERIFY_SSL = 'local_verify_ssl'
+CONF_LOCAL_RETRIES = "local_retries"
+CONF_LOCAL_RETRY_TIME = "local_retry_time"
 
 CONF_REMOTE_HOST = 'remote_host'
 CONF_REMOTE_PORT = 'remote_port'
@@ -60,6 +61,10 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_LOCAL_SSL, default=DEFAULT_SSL): cv.boolean,
         vol.Optional(CONF_LOCAL_VERIFY_SSL,
                      default=DEFAULT_VERIFY_SSL): cv.boolean,
+        vol.Optional(CONF_LOCAL_RETRIES,
+                     default=DEFAULT_RETRIES): cv.positive_int,
+        vol.Optional(CONF_LOCAL_RETRY_TIME,
+                     default=DEFAULT_RETRY_TIME): cv.positive_int,
         vol.Required(CONF_REMOTE_HOST): cv.string,
         vol.Optional(CONF_REMOTE_PORT, default=DEFAULT_PORT): cv.positive_int,
         vol.Optional(CONF_REMOTE_DB_NAME, default=DEFAULT_DATABASE): cv.string,
@@ -68,11 +73,11 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_REMOTE_SSL, default=DEFAULT_SSL): cv.boolean,
         vol.Optional(CONF_REMOTE_VERIFY_SSL,
                      default=DEFAULT_VERIFY_SSL): cv.boolean,
-        vol.Required(CONF_HOME_ID): cv.string,
         vol.Optional(CONF_REMOTE_RETRIES,
-                     default=DEFAULT_REMOTE_RETRIES): cv.positive_int,
+                     default=DEFAULT_RETRIES): cv.positive_int,
         vol.Optional(CONF_REMOTE_RETRY_TIME,
-                     default=DEFAULT_REMOTE_RETRY_TIME): cv.positive_int,
+                     default=DEFAULT_RETRY_TIME): cv.positive_int,
+        vol.Required(CONF_HOME_ID): cv.string,
         vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL): cv.positive_int,
     })
 }, extra=vol.ALLOW_EXTRA)
@@ -83,43 +88,50 @@ def setup(hass, config):
     from influxdb import exceptions
 
     config = config[DOMAIN]
+    local_retries = config[CONF_LOCAL_RETRIES]
+    local_retry_time = config[CONF_LOCAL_RETRY_TIME]
     remote_retries = config[CONF_REMOTE_RETRIES]
     remote_retry_time = config[CONF_REMOTE_RETRY_TIME]
     interval = config[CONF_INTERVAL]
 
-    try:
-        _LOGGER.info("Connecting to remote database")
-        uploader = Uploader(config[CONF_REMOTE_HOST],
-                            config[CONF_REMOTE_PORT],
-                            config[CONF_REMOTE_DB_NAME],
-                            config[CONF_REMOTE_USERNAME],
-                            config[CONF_REMOTE_PASSWORD],
-                            config[CONF_REMOTE_SSL],
-                            config[CONF_REMOTE_VERIFY_SSL],
-                            config[CONF_HOME_ID])
-    except exceptions.InfluxDBClientError as exc:
-        _LOGGER.error("Remote database host is not accessible due to '%s', "
-                      "please check your entries in the configuration file "
-                      "and that the database exists and is READ/WRITE.", exc)
-        # Since this is the remote database, there is nothing that can be done,
-        # so just give up.
-        return False
-    except exceptions.InfluxDBServerError as exc:
-        _LOGGER.error("Unable to connect with server: %s", exc)
-        # Since this is the remote database, there is nothing that can be done,
-        # so just give up.
-        return False
-    except requests.exceptions.RequestException as exc:
-        _LOGGER.error("Unable to connect to remote database: %s", exc)
-        # Since this is the remote database, there is nothing that can be done,
-        # so just give up.
+    _LOGGER.info("Connecting to remote database")
+    for i in range(remote_retries):
+        _LOGGER.info("Trying %s out of %s", i + 1, remote_retries)
+        try:
+            uploader = Uploader(config[CONF_REMOTE_HOST],
+                                config[CONF_REMOTE_PORT],
+                                config[CONF_REMOTE_DB_NAME],
+                                config[CONF_REMOTE_USERNAME],
+                                config[CONF_REMOTE_PASSWORD],
+                                config[CONF_REMOTE_SSL],
+                                config[CONF_REMOTE_VERIFY_SSL],
+                                config[CONF_HOME_ID])
+            _LOGGER.info("Connected to remote database!")
+            break
+        except exceptions.InfluxDBClientError as exc:
+            _LOGGER.error("Remote database host is not accessible due to '%s',"
+                          " please check your entries in the configuration "
+                          "file and that the database exists and is "
+                          "READ/WRITE.", exc)
+        except exceptions.InfluxDBServerError as exc:
+            _LOGGER.error("Unable to connect with server: %s", exc)
+        except requests.exceptions.RequestException as exc:
+            _LOGGER.error("Unable to connect to remote database: %s", exc)
+
+        _LOGGER.info("Retrying again in %s seconds", remote_retry_time)
+        time.sleep(remote_retry_time)
+    else:
+        # All of the retries didn't work, so fail
+        _LOGGER.error("Unable to connect to remote database or the database is"
+                      " not accessible after %s retries (%s second(s) apart).",
+                      remote_retries, remote_retry_time)
         return False
 
     # Sometimes the local InfluxDB takes awhile to start up. We will try a
     # few times before giving up.
     _LOGGER.info("Connecting to local database")
-    for i in range(remote_retries):
-        _LOGGER.info("Trying %s out of %s", i + 1, remote_retries)
+    for i in range(local_retries):
+        _LOGGER.info("Trying %s out of %s", i + 1, local_retries)
         try:
             downloader = Downloader(config[CONF_LOCAL_HOST],
                                     config[CONF_LOCAL_PORT],
@@ -128,6 +140,7 @@ def setup(hass, config):
                                     config[CONF_LOCAL_PASSWORD],
                                     config[CONF_LOCAL_SSL],
                                     config[CONF_LOCAL_VERIFY_SSL])
+            _LOGGER.info("Connected to local database!")
             break
         except exceptions.InfluxDBClientError as exc:
             _LOGGER.warn("Local database host is not accessible due to '%s', "
@@ -137,14 +150,14 @@ def setup(hass, config):
         except requests.exceptions.RequestException as exc:
             _LOGGER.warn("Unable to connect to local database: %s", exc)
 
-        _LOGGER.info("Retrying again in %s seconds", remote_retry_time)
-        time.sleep(remote_retry_time)
+        _LOGGER.info("Retrying again in %s seconds", local_retry_time)
+        time.sleep(local_retry_time)
 
     else:
         # All of the retries didn't work, so fail
-        _LOGGER.error("Unable to connect to database or the database is not"
-                      " accessible after %s retries (%s second(s) apart).",
-                      remote_retries, remote_retry_time)
+        _LOGGER.error("Unable to connect to local database or the database is"
+                      " not accessible after %s retries (%s second(s) apart).",
+                      local_retries, local_retry_time)
         return False
 
     def next_time():
