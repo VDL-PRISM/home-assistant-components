@@ -49,8 +49,6 @@ CONF_REMOTE_VERIFY_SSL = 'remote_verify_ssl'
 CONF_REMOTE_RETRIES = "remote_retries"
 CONF_REMOTE_RETRY_TIME = "remote_retry_time"
 
-GET_QUERY = "select * from /.*/"
-
 
 def setup(hass, config):
     """ Setup uploader component. """
@@ -154,7 +152,12 @@ def setup(hass, config):
             _LOGGER.error("Unable to connect to local database: %s", exc)
 
         try:
-            uploader.upload_data(data)
+            # Make sure there is data to upload
+            if data is None or 'series' not in data.raw:
+                _LOGGER.info("No data to upload")
+            else:
+                last = uploader.upload_data(data)
+                downloader.last_time = last
         except exceptions.InfluxDBClientError as exc:
             _LOGGER.error(
                 "Exception while uploading data to remote database: %s", exc)
@@ -185,10 +188,51 @@ class Downloader:
         # Make sure client can connect
         self.client.query("select * from /.*/ LIMIT 1;")
         self.database = database
+        self._last_time = None
+
+    @property
+    def last_time(self):
+        if self._last_time is not None:
+            return self._last_time
+
+        # Check to see if the value is already in the database
+        last_time = self.client.query(
+            "select value from last_time")
+        _LOGGER.info("last_downloaded: %s", last_time)
+
+        if len(last_time) == 0:
+            # If not, use the oldest value in the database
+            _LOGGER.warning(
+                "last_time value not found! Using 0 as the oldest value")
+            self._last_time = 0
+        else:
+            assert len(last_time) == 1
+            self._last_time = list(
+                last_time.get_points('last_time'))[0]['value']
+
+        return self._last_time
+
+    @last_time.setter
+    def last_time(self, value):
+        # Save the value
+        self._last_time = value
+
+        # Also record it in case uploader stops
+        self.client.write_points([{
+            "measurement": "last_time",
+            "time": 0,
+            "fields": {
+                "value": value
+            }
+        }])
 
     def get_data(self):
-        _LOGGER.info("Getting data")
-        return self.client.query(GET_QUERY)
+        _LOGGER.info("Getting data (time > {})".format(self.last_time))
+
+        GET_QUERY = "select * from /.*/ WHERE time > {}"
+        data = self.client.query(GET_QUERY.format(self.last_time),
+                                 epoch='ns')
+        return data
 
 
 class Uploader:
@@ -218,23 +262,22 @@ class Uploader:
                 raise exc
 
     def upload_data(self, data):
-        if data is None or 'series' not in data.raw:
-            _LOGGER.info("No data to upload")
-            return
-
         data = data.raw
 
         _LOGGER.info("Uploading data")
         formated_data = [self._format_data(**series)
                          for series in data['series']]
         formated_data = itertools.chain.from_iterable(formated_data)
+        formated_data = list(formated_data)  # Necessary because of batch_size
         result = self.client.write_points(formated_data, batch_size=10000)
 
         if not result:
+            from influxdb.exceptions import InfluxDBClientError
             _LOGGER.error("Unable to upload data to remote database")
-            return False
+            raise InfluxDBClientError
 
-        return True
+        last_time = formated_data[-1]['time']
+        return last_time
 
     def _format_data(self, name, columns, values):
         time_index = columns.index('time')
