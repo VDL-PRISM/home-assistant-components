@@ -7,10 +7,11 @@ import logging
 import itertools
 from datetime import timedelta
 import requests
+import voluptuous as vol
 
 import homeassistant.util as util
-from homeassistant.helpers import validate_config
 from homeassistant.helpers.event import track_point_in_time
+import homeassistant.helpers.config_validation as cv
 
 import homeassistant.util.dt as dt_util
 
@@ -49,48 +50,53 @@ CONF_REMOTE_VERIFY_SSL = 'remote_verify_ssl'
 CONF_REMOTE_RETRIES = "remote_retries"
 CONF_REMOTE_RETRY_TIME = "remote_retry_time"
 
+CONFIG_SCHEMA = vol.Schema({
+    DOMAIN: vol.Schema({
+        vol.Required(CONF_LOCAL_HOST): cv.string,
+        vol.Optional(CONF_LOCAL_PORT, default=DEFAULT_PORT): cv.positive_int,
+        vol.Optional(CONF_LOCAL_DB_NAME, default=DEFAULT_DATABASE): cv.string,
+        vol.Optional(CONF_LOCAL_USERNAME, default=None): cv.string,
+        vol.Optional(CONF_LOCAL_PASSWORD, default=None): cv.string,
+        vol.Optional(CONF_LOCAL_SSL, default=DEFAULT_SSL): cv.boolean,
+        vol.Optional(CONF_LOCAL_VERIFY_SSL,
+                     default=DEFAULT_VERIFY_SSL): cv.boolean,
+        vol.Required(CONF_REMOTE_HOST): cv.string,
+        vol.Optional(CONF_REMOTE_PORT, default=DEFAULT_PORT): cv.positive_int,
+        vol.Optional(CONF_REMOTE_DB_NAME, default=DEFAULT_DATABASE): cv.string,
+        vol.Optional(CONF_REMOTE_USERNAME, default=None): cv.string,
+        vol.Optional(CONF_REMOTE_PASSWORD, default=None): cv.string,
+        vol.Optional(CONF_REMOTE_SSL, default=DEFAULT_SSL): cv.boolean,
+        vol.Optional(CONF_REMOTE_VERIFY_SSL,
+                     default=DEFAULT_VERIFY_SSL): cv.boolean,
+        vol.Required(CONF_HOME_ID): cv.string,
+        vol.Optional(CONF_REMOTE_RETRIES,
+                     default=DEFAULT_REMOTE_RETRIES): cv.positive_int,
+        vol.Optional(CONF_REMOTE_RETRY_TIME,
+                     default=DEFAULT_REMOTE_RETRY_TIME): cv.positive_int,
+        vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL): cv.positive_int,
+    })
+}, extra=vol.ALLOW_EXTRA)
+
 
 def setup(hass, config):
     """ Setup uploader component. """
     from influxdb import exceptions
 
-    if not validate_config(config, {DOMAIN: [CONF_LOCAL_HOST, CONF_REMOTE_HOST,
-                                             CONF_HOME_ID]}, _LOGGER):
-        return False
-
-    conf = config[DOMAIN]
-
-    local_host = conf[CONF_LOCAL_HOST]
-    local_port = util.convert(conf.get(CONF_LOCAL_PORT), int, DEFAULT_PORT)
-    local_database = util.convert(
-        conf.get(CONF_LOCAL_DB_NAME), str, DEFAULT_DATABASE)
-    local_username = util.convert(conf.get(CONF_LOCAL_USERNAME), str)
-    local_password = util.convert(conf.get(CONF_LOCAL_PASSWORD), str)
-    local_ssl = util.convert(conf.get(CONF_LOCAL_SSL), bool, DEFAULT_SSL)
-    local_verify_ssl = util.convert(
-        conf.get(CONF_LOCAL_VERIFY_SSL), bool, DEFAULT_VERIFY_SSL)
-
-    remote_host = conf[CONF_REMOTE_HOST]
-    remote_port = util.convert(conf.get(CONF_REMOTE_PORT), int, DEFAULT_PORT)
-    remote_database = util.convert(
-        conf.get(CONF_REMOTE_DB_NAME), str, DEFAULT_DATABASE)
-    remote_username = util.convert(conf.get(CONF_REMOTE_USERNAME), str)
-    remote_password = util.convert(conf.get(CONF_REMOTE_PASSWORD), str)
-    remote_ssl = util.convert(conf.get(CONF_REMOTE_SSL), bool, DEFAULT_SSL)
-    remote_verify_ssl = util.convert(
-        conf.get(CONF_REMOTE_VERIFY_SSL), bool, DEFAULT_VERIFY_SSL)
-    remote_retries = util.convert(
-        conf.get(CONF_REMOTE_RETRIES), int, DEFAULT_REMOTE_RETRIES)
-    remote_retry_time = util.convert(
-        conf.get(CONF_REMOTE_RETRY_TIME), int, DEFAULT_REMOTE_RETRY_TIME)
-    home_id = conf[CONF_HOME_ID]
-    interval = util.convert(conf.get(CONF_INTERVAL), int, DEFAULT_INTERVAL)
+    config = config[DOMAIN]
+    remote_retries = config[CONF_REMOTE_RETRIES]
+    remote_retry_time = config[CONF_REMOTE_RETRY_TIME]
+    interval = config[CONF_INTERVAL]
 
     try:
         _LOGGER.info("Connecting to remote database")
-        uploader = Uploader(remote_host, remote_port, remote_database,
-                            remote_username, remote_password, remote_ssl,
-                            remote_verify_ssl, home_id)
+        uploader = Uploader(config[CONF_REMOTE_HOST],
+                            config[CONF_REMOTE_PORT],
+                            config[CONF_REMOTE_DB_NAME],
+                            config[CONF_REMOTE_USERNAME],
+                            config[CONF_REMOTE_PASSWORD],
+                            config[CONF_REMOTE_SSL],
+                            config[CONF_REMOTE_VERIFY_SSL],
+                            config[CONF_HOME_ID])
     except exceptions.InfluxDBClientError as exc:
         _LOGGER.error("Remote database host is not accessible due to '%s', "
                       "please check your entries in the configuration file "
@@ -115,9 +121,13 @@ def setup(hass, config):
     for i in range(remote_retries):
         _LOGGER.info("Trying %s out of %s", i + 1, remote_retries)
         try:
-            downloader = Downloader(local_host, local_port, local_database,
-                                    local_username, local_password, local_ssl,
-                                    local_verify_ssl)
+            downloader = Downloader(config[CONF_LOCAL_HOST],
+                                    config[CONF_LOCAL_PORT],
+                                    config[CONF_LOCAL_DB_NAME],
+                                    config[CONF_LOCAL_USERNAME],
+                                    config[CONF_LOCAL_PASSWORD],
+                                    config[CONF_LOCAL_SSL],
+                                    config[CONF_LOCAL_VERIFY_SSL])
             break
         except exceptions.InfluxDBClientError as exc:
             _LOGGER.warn("Local database host is not accessible due to '%s', "
