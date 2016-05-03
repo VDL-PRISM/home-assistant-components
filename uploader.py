@@ -117,6 +117,10 @@ def setup(hass, config):
             _LOGGER.error("Unable to connect with server: %s", exc)
         except requests.exceptions.RequestException as exc:
             _LOGGER.error("Unable to connect to remote database: %s", exc)
+        except Exception:
+            _LOGGER.exception(
+                "An unknown exception occurred while connecting to remote "
+                "database!")
 
         _LOGGER.info("Retrying again in %s seconds", remote_retry_time)
         time.sleep(remote_retry_time)
@@ -143,12 +147,17 @@ def setup(hass, config):
             _LOGGER.info("Connected to local database!")
             break
         except exceptions.InfluxDBClientError as exc:
-            _LOGGER.warn("Local database host is not accessible due to '%s', "
-                         "please check your entries in the configuration file "
-                         "and that the database exists and is READ/WRITE.",
-                         exc)
+            _LOGGER.warning(
+                "Local database host is not accessible due to '%s', "
+                "please check your entries in the configuration file "
+                "and that the database exists and is READ/WRITE.",
+                exc)
         except requests.exceptions.RequestException as exc:
-            _LOGGER.warn("Unable to connect to local database: %s", exc)
+            _LOGGER.warning("Unable to connect to local database: %s", exc)
+        except Exception:
+            _LOGGER.exception(
+                "An unknown exception occurred while connecting to local"
+                "database!")
 
         _LOGGER.info("Retrying again in %s seconds", local_retry_time)
         time.sleep(local_retry_time)
@@ -173,6 +182,10 @@ def setup(hass, config):
         except requests.exceptions.RequestException as exc:
             data = None
             _LOGGER.error("Unable to connect to local database: %s", exc)
+        except Exception:
+            data = None
+            _LOGGER.exception(
+                "An unknown exception occurred when downloading data!")
 
         try:
             # Make sure there is data to upload
@@ -189,6 +202,9 @@ def setup(hass, config):
                 "Exception while uploading data to remote database: %s", exc)
         except requests.exceptions.RequestException as exc:
             _LOGGER.error("Unable to connect to remote database: %s", exc)
+        except Exception:
+            _LOGGER.exception(
+                "An unknown exception occurred when uploading data!")
 
         track_point_in_time(hass, action, next_time())
 
@@ -250,10 +266,10 @@ class Downloader:
         }])
 
     def get_data(self):
-        _LOGGER.info("Getting data (time > {})".format(self.last_time))
+        _LOGGER.info("Getting data (time > %s)", self.last_time)
 
-        GET_QUERY = "select * from /.*/ WHERE time > {}"
-        data = self.client.query(GET_QUERY.format(self.last_time),
+        get_query = "select * from /.*/ WHERE time > {}"
+        data = self.client.query(get_query.format(self.last_time),
                                  epoch='ns')
         return data
 
