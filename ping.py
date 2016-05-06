@@ -1,3 +1,15 @@
+"""
+Component to keep track of if devices are able to connect to it. This
+component requires some additional configuration on the devices you want to
+track. They must connect to http(s)://<server>/api/ping and send a home_id and
+keep-alive value. Here is an example using curl:
+
+curl -X POST --data '{"id":"test", "keep-alive":5}' http://<server>/api/ping
+
+And using httpie:
+
+http -v POST http://<server>/api/ping keep-alive=5 id=test
+"""
 from datetime import timedelta
 import logging
 
