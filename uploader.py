@@ -2,7 +2,6 @@
 custom_components.uploader
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 """
-import time
 import logging
 import itertools
 from datetime import timedelta
@@ -38,8 +37,6 @@ CONF_LOCAL_USERNAME = 'local_username'
 CONF_LOCAL_PASSWORD = 'local_password'
 CONF_LOCAL_SSL = 'local_ssl'
 CONF_LOCAL_VERIFY_SSL = 'local_verify_ssl'
-CONF_LOCAL_RETRIES = "local_retries"
-CONF_LOCAL_RETRY_TIME = "local_retry_time"
 
 CONF_REMOTE_HOST = 'remote_host'
 CONF_REMOTE_PORT = 'remote_port'
@@ -48,8 +45,6 @@ CONF_REMOTE_USERNAME = 'remote_username'
 CONF_REMOTE_PASSWORD = 'remote_password'
 CONF_REMOTE_SSL = 'remote_ssl'
 CONF_REMOTE_VERIFY_SSL = 'remote_verify_ssl'
-CONF_REMOTE_RETRIES = "remote_retries"
-CONF_REMOTE_RETRY_TIME = "remote_retry_time"
 
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
@@ -61,10 +56,6 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_LOCAL_SSL, default=DEFAULT_SSL): cv.boolean,
         vol.Optional(CONF_LOCAL_VERIFY_SSL,
                      default=DEFAULT_VERIFY_SSL): cv.boolean,
-        vol.Optional(CONF_LOCAL_RETRIES,
-                     default=DEFAULT_RETRIES): cv.positive_int,
-        vol.Optional(CONF_LOCAL_RETRY_TIME,
-                     default=DEFAULT_RETRY_TIME): cv.positive_int,
         vol.Required(CONF_REMOTE_HOST): cv.string,
         vol.Optional(CONF_REMOTE_PORT, default=DEFAULT_PORT): cv.positive_int,
         vol.Optional(CONF_REMOTE_DB_NAME, default=DEFAULT_DATABASE): cv.string,
@@ -73,10 +64,6 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_REMOTE_SSL, default=DEFAULT_SSL): cv.boolean,
         vol.Optional(CONF_REMOTE_VERIFY_SSL,
                      default=DEFAULT_VERIFY_SSL): cv.boolean,
-        vol.Optional(CONF_REMOTE_RETRIES,
-                     default=DEFAULT_RETRIES): cv.positive_int,
-        vol.Optional(CONF_REMOTE_RETRY_TIME,
-                     default=DEFAULT_RETRY_TIME): cv.positive_int,
         vol.Required(CONF_HOME_ID): cv.string,
         vol.Optional(CONF_INTERVAL, default=DEFAULT_INTERVAL): cv.positive_int,
     })
@@ -88,86 +75,24 @@ def setup(hass, config):
     from influxdb import exceptions
 
     config = config[DOMAIN]
-    local_retries = config[CONF_LOCAL_RETRIES]
-    local_retry_time = config[CONF_LOCAL_RETRY_TIME]
-    remote_retries = config[CONF_REMOTE_RETRIES]
-    remote_retry_time = config[CONF_REMOTE_RETRY_TIME]
     interval = config[CONF_INTERVAL]
 
-    _LOGGER.info("Connecting to remote database")
-    for i in range(remote_retries):
-        _LOGGER.info("Trying %s out of %s", i + 1, remote_retries)
-        try:
-            uploader = Uploader(config[CONF_REMOTE_HOST],
-                                config[CONF_REMOTE_PORT],
-                                config[CONF_REMOTE_DB_NAME],
-                                config[CONF_REMOTE_USERNAME],
-                                config[CONF_REMOTE_PASSWORD],
-                                config[CONF_REMOTE_SSL],
-                                config[CONF_REMOTE_VERIFY_SSL],
-                                config[CONF_HOME_ID])
-            _LOGGER.info("Connected to remote database!")
-            break
-        except exceptions.InfluxDBClientError as exc:
-            _LOGGER.error("Remote database host is not accessible due to '%s',"
-                          " please check your entries in the configuration "
-                          "file and that the database exists and is "
-                          "READ/WRITE.", exc)
-        except exceptions.InfluxDBServerError as exc:
-            _LOGGER.error("Unable to connect with server: %s", exc)
-        except requests.exceptions.RequestException as exc:
-            _LOGGER.error("Unable to connect to remote database: %s", exc)
-        except Exception:
-            _LOGGER.exception(
-                "An unknown exception occurred while connecting to remote "
-                "database!")
+    uploader = Uploader(config[CONF_REMOTE_HOST],
+                        config[CONF_REMOTE_PORT],
+                        config[CONF_REMOTE_DB_NAME],
+                        config[CONF_REMOTE_USERNAME],
+                        config[CONF_REMOTE_PASSWORD],
+                        config[CONF_REMOTE_SSL],
+                        config[CONF_REMOTE_VERIFY_SSL],
+                        config[CONF_HOME_ID])
 
-        _LOGGER.info("Retrying again in %s seconds", remote_retry_time)
-        time.sleep(remote_retry_time)
-    else:
-        # All of the retries didn't work, so fail
-        _LOGGER.error("Unable to connect to remote database or the database is"
-                      " not accessible after %s retries (%s second(s) apart).",
-                      remote_retries, remote_retry_time)
-        return False
-
-    # Sometimes the local InfluxDB takes awhile to start up. We will try a
-    # few times before giving up.
-    _LOGGER.info("Connecting to local database")
-    for i in range(local_retries):
-        _LOGGER.info("Trying %s out of %s", i + 1, local_retries)
-        try:
-            downloader = Downloader(config[CONF_LOCAL_HOST],
-                                    config[CONF_LOCAL_PORT],
-                                    config[CONF_LOCAL_DB_NAME],
-                                    config[CONF_LOCAL_USERNAME],
-                                    config[CONF_LOCAL_PASSWORD],
-                                    config[CONF_LOCAL_SSL],
-                                    config[CONF_LOCAL_VERIFY_SSL])
-            _LOGGER.info("Connected to local database!")
-            break
-        except exceptions.InfluxDBClientError as exc:
-            _LOGGER.warning(
-                "Local database host is not accessible due to '%s', "
-                "please check your entries in the configuration file "
-                "and that the database exists and is READ/WRITE.",
-                exc)
-        except requests.exceptions.RequestException as exc:
-            _LOGGER.warning("Unable to connect to local database: %s", exc)
-        except Exception:
-            _LOGGER.exception(
-                "An unknown exception occurred while connecting to local"
-                "database!")
-
-        _LOGGER.info("Retrying again in %s seconds", local_retry_time)
-        time.sleep(local_retry_time)
-
-    else:
-        # All of the retries didn't work, so fail
-        _LOGGER.error("Unable to connect to local database or the database is"
-                      " not accessible after %s retries (%s second(s) apart).",
-                      local_retries, local_retry_time)
-        return False
+    downloader = Downloader(config[CONF_LOCAL_HOST],
+                            config[CONF_LOCAL_PORT],
+                            config[CONF_LOCAL_DB_NAME],
+                            config[CONF_LOCAL_USERNAME],
+                            config[CONF_LOCAL_PASSWORD],
+                            config[CONF_LOCAL_SSL],
+                            config[CONF_LOCAL_VERIFY_SSL])
 
     def next_time():
         return dt_util.now() + timedelta(seconds=interval)
@@ -215,17 +140,18 @@ def setup(hass, config):
 class Downloader:
     def __init__(self, host, port, database, username, password, ssl,
                  verify_ssl):
-        from influxdb import InfluxDBClient
-
-        self.client = InfluxDBClient(host=host,
-                                     port=port,
-                                     username=username,
-                                     password=password,
-                                     database=database,
-                                     ssl=ssl,
-                                     verify_ssl=verify_ssl)
-        # Make sure client can connect
-        self.client.query("select * from /.*/ LIMIT 1;")
+        def _connect():
+            from influxdb import InfluxDBClient
+            _LOGGER.info("Connecting to local database")
+            return InfluxDBClient(host=host,
+                                  port=port,
+                                  username=username,
+                                  password=password,
+                                  database=database,
+                                  ssl=ssl,
+                                  verify_ssl=verify_ssl)
+        self._connect = _connect
+        self.client = None
         self.database = database
         self._last_time = None
 
@@ -233,6 +159,11 @@ class Downloader:
     def last_time(self):
         if self._last_time is not None:
             return self._last_time
+
+        # If the client hasn't been connected yet, then connect
+        # We will let the caller deal with all the possible exceptions
+        if self.client is None:
+            self.client = self._connect()
 
         # Check to see if the value is already in the database
         last_time = self.client.query(
@@ -256,6 +187,11 @@ class Downloader:
         # Save the value
         self._last_time = value
 
+        # If the client hasn't been connected yet, then connect
+        # We will let the caller deal with all the possible exceptions
+        if self.client is None:
+            self.client = self._connect()
+
         # Also record it in case uploader stops
         self.client.write_points([{
             "measurement": "last_time",
@@ -266,6 +202,11 @@ class Downloader:
         }])
 
     def get_data(self):
+        # If the client hasn't been connected yet, then connect
+        # We will let the caller deal with all the possible exceptions
+        if self.client is None:
+            self.client = self._connect()
+
         _LOGGER.info("Getting data (time > %s)", self.last_time)
 
         get_query = "select * from /.*/ WHERE time > {}"
@@ -277,30 +218,28 @@ class Downloader:
 class Uploader:
     def __init__(self, host, port, database, username, password, ssl,
                  verify_ssl, home_id):
-        from influxdb import InfluxDBClient, exceptions
 
-        self.client = InfluxDBClient(host=host,
-                                     port=port,
-                                     username=username,
-                                     password=password,
-                                     database=database,
-                                     ssl=ssl,
-                                     verify_ssl=verify_ssl)
+        def _connect():
+            from influxdb import InfluxDBClient
+            _LOGGER.info("Connecting to remote database")
+            return InfluxDBClient(host=host,
+                                  port=port,
+                                  username=username,
+                                  password=password,
+                                  database=database,
+                                  ssl=ssl,
+                                  verify_ssl=verify_ssl)
+
+        self._connect = _connect
+        self.client = None
         self.home_id = home_id
 
-        # Make sure client can connect
-        try:
-            self.client.query("select * from /.*/ LIMIT 1;")
-        except exceptions.InfluxDBClientError as exc:
-            if exc.code == 401:
-                # This is okay because we are trying to read from the database,
-                # but we might only have write permissions. At least we know
-                # that the database exists and we can connect to it.
-                pass
-            else:
-                raise exc
-
     def upload_data(self, data):
+        # If the client hasn't been connected yet, connect
+        # We will let the caller deal with all the possible exceptions
+        if self.client is None:
+            self.client = self._connect()
+
         data = data.raw
 
         formatted_data = [self._format_data(**series)
