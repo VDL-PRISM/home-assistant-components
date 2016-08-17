@@ -1,0 +1,95 @@
+import json
+import logging
+
+import voluptuous as vol
+
+import homeassistant.components.mqtt as mqtt
+from homeassistant.components.sensor import PLATFORM_SCHEMA
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.entity import Entity
+
+_LOGGER = logging.getLogger(__name__)
+
+DEPENDENCIES = ['mqtt']
+
+CONF_MONITOR = 'monitor'
+CONF_SENSORS = 'sensors'
+
+DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small']
+SENSOR_TYPES = {
+    'temperature': '°C',
+    'humidity': '%',
+    'large': 'pm',
+    'small': 'pm'
+}
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
+    vol.Required(CONF_MONITOR): cv.string,
+    vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
+})
+
+def setup_platform(hass, config, add_devices, discovery_info=None):
+    topic = "prisms/airquality/{}".format(config['monitor'])
+
+    callbacks = []
+    sensors = []
+
+    for sensor in config['sensors']:
+        dylos = DylosSensor(config['monitor'], sensor)
+
+        sensors.append(dylos)
+        callbacks.append(dylos.update)
+
+    def message_received(topic, payload, qos):
+        data = json.loads(payload)
+
+        for cb in callbacks:
+            cb(data)
+
+    mqtt.subscribe(hass, topic, message_received, qos=0)
+    add_devices(sensors)
+
+
+class DylosSensor(Entity):
+    def __init__(self, monitor, sensor_name):
+        self._monitor = monitor
+        self._name = sensor_name
+        self._unit_of_measurement = SENSOR_TYPES[sensor_name]
+        self._data = None
+
+    def update(self, data):
+        self._data = data
+        self.update_ha_state()
+
+    @property
+    def should_poll(self):
+        """No polling needed."""
+        return False
+
+    @property
+    def name(self):
+        """Return the name of the sensor."""
+        return '{} {}'.format(self._monitor, self._name)
+
+    @property
+    def unit_of_measurement(self):
+        """Return the unit of measurement of this entity, if any."""
+        return self._unit_of_measurement
+
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        if self._data is None:
+            return None
+
+        return {'sequence': self._data['sequence'],
+                'sample_time': self._data['sampletime']}
+
+    @property
+    def state(self):
+        """Return the state of the entity."""
+        if self._data is None:
+            return None
+
+        return self._data[self._name]
+
