@@ -95,3 +95,8 @@ class DylosSensor(Entity):
 
         return self._data[self._name]
 
+    @property
+    def force_update(self):
+        return True
+
+
