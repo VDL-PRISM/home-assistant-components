@@ -7,6 +7,7 @@ import homeassistant.components.mqtt as mqtt
 from homeassistant.components.sensor import PLATFORM_SCHEMA
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
+import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,12 +16,13 @@ DEPENDENCIES = ['mqtt']
 CONF_MONITOR = 'monitor'
 CONF_SENSORS = 'sensors'
 
-DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small']
+DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small', 'sequence']
 SENSOR_TYPES = {
     'temperature': '°C',
     'humidity': '%',
     'large': 'pm',
-    'small': 'pm'
+    'small': 'pm',
+    'sequence': 'sequence'
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -83,7 +85,7 @@ class DylosSensor(Entity):
             return None
 
         return {'sequence': self._data['sequence'],
-                'sample_time': self._data['sampletime']}
+                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'])}
 
     @property
     def state(self):
