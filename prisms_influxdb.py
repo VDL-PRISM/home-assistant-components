@@ -17,10 +17,8 @@ from homeassistant.const import (EVENT_STATE_CHANGED, STATE_UNAVAILABLE,
                                  STATE_UNKNOWN, CONF_VALUE_TEMPLATE)
 from homeassistant.helpers import state as state_helper
 from homeassistant.helpers import template
-from homeassistant.helpers import validate_config
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.event import track_point_in_time
-import homeassistant.util as util
 import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
@@ -129,7 +127,7 @@ def setup(hass, config):
 
     if batch_time != 0:
         # Set up task to upload batch data
-        write_batch_data(hass, events, influx, render, batch_time, chunk_size
+        write_batch_data(hass, events, influx, render, batch_time, chunk_size,
                          influx_event_listener)
 
     return True
@@ -195,7 +193,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
     track_point_in_time(hass, action, next_time())
 
 
-def get_json_body(event, hass, tags, value_template, event_listener):
+def get_json_body(event, hass, tags, value_template):
     state = event.data.get('new_state')
 
     try:
@@ -223,13 +221,14 @@ def get_json_body(event, hass, tags, value_template, event_listener):
         ]
     else:
         json_body = template.render(hass, value_template, event=event,
-            measurement=measurement, state=state, state_value=_state)
+                                    measurement=measurement, state=state,
+                                    state_value=_state)
 
         try:
             json_body = json.loads(json_body)
         except json.decoder.JSONDecodeError as e:
             _LOGGER.error('%s does not result in valid json: %s: %s',
-                CONF_VALUE_TEMPLATE, e, json_body)
+                          CONF_VALUE_TEMPLATE, e, json_body)
             raise e
 
     for tag in tags:
