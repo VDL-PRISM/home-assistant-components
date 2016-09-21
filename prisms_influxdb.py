@@ -111,6 +111,7 @@ def setup(hass, config):
             # Since batch time hasn't been set, just upload as soon as an event
             # occurs
             try:
+                _LOGGER.debug("Since batch_time == 0, writing data")
                 json_body = render(event)
                 write_data(influx, json_body)
             except json.decoder.JSONDecodeError as e:
@@ -121,13 +122,14 @@ def setup(hass, config):
                 return
         else:
             # Store event to be uploaded later
+            _LOGGER.debug("Saving event for later")
             events.append(event)
-
 
     hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
 
     if batch_time != 0:
         # Set up task to upload batch data
+        _LOGGER.debug("Starting task to upload batch data")
         write_batch_data(hass, events, influx, render, batch_time, chunk_size,
                          influx_event_listener)
 
@@ -137,9 +139,9 @@ def setup(hass, config):
 def write_data(influx, json_body):
     from influxdb import exceptions
 
-    print("*" * 80)
-    print(json_body)
-    print("*" * 80)
+    _LOGGER.debug("*" * 80)
+    _LOGGER.debug(json_body)
+    _LOGGER.debug("*" * 80)
 
     try:
         influx.write_points(json_body)
@@ -163,13 +165,17 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
 
     def action(now):
         while True:
+            _LOGGER.debug("Trying to upload data")
 
             if len(events) == 0:
                 # No more events to upload
+                _LOGGER.debug("Nothing to upload")
                 break
 
             events_chunk = events[:chunk_size]
             events_chunk_length = len(events_chunk)
+            _LOGGER.debug("Uploading chunk of size %s", events_chunk_length)
+
             try:
                 # Render and write events
                 data = itertools.chain(*[render(event) for event in events_chunk])
@@ -183,9 +189,11 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
 
             if result:
                 # Chunk got saved so remove events
+                _LOGGER.debug("Data was uploaded successfully so deleting data")
                 del events[:events_chunk_length]
             else:
                 # Unable to write data so give up for now
+                _LOGGER.debug("Error while trying to upload data. Trying again later")
                 break
 
         # Schedule again
