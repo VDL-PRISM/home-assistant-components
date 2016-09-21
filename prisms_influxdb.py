@@ -126,6 +126,15 @@ def setup(hass, config):
         else:
             # Store event to be uploaded later
             _LOGGER.debug("Saving event for later")
+
+            # Convert object to pickle-able. Since State.attributes uses
+            # MappingProxyType, it is not pickle-able
+            if event.data['new_state']:
+                event.data['new_state'].attributes = dict(event.data['new_state'].attributes)
+
+            if event.data['old_state']:
+                event.data['old_state'].attributes = dict(event.data['old_state'].attributes)
+
             events.push(event)
 
     hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
