@@ -151,10 +151,6 @@ def setup(hass, config):
 def write_data(influx, json_body):
     from influxdb import exceptions
 
-    _LOGGER.debug("*" * 80)
-    _LOGGER.debug(json_body)
-    _LOGGER.debug("*" * 80)
-
     try:
         influx.write_points(json_body)
     except requests.exceptions.RequestException as e:
