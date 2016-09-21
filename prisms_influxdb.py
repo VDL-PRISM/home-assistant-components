@@ -10,6 +10,7 @@ import logging
 import itertools
 import json
 
+from persistent_queue import PersistentQueue
 import requests
 import voluptuous as vol
 
@@ -34,7 +35,7 @@ DEFAULT_VERIFY_SSL = False
 DEFAULT_BATCH_TIME = 0
 DEFAULT_CHUNK_SIZE = 1000
 
-REQUIREMENTS = ['influxdb==3.0.0']
+REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.0.1']
 
 CONF_HOST = 'host'
 CONF_PORT = 'port'
@@ -92,7 +93,7 @@ def setup(hass, config):
                             ssl=conf[CONF_SSL],
                             verify_ssl=conf[CONF_VERIFY_SSL])
 
-    events = []
+    events = PersistentQueue('prisms_influxdb.queue')
     render = functools.partial(get_json_body, hass=hass, tags=tags,
                                value_template=value_template)
 
@@ -125,7 +126,7 @@ def setup(hass, config):
         else:
             # Store event to be uploaded later
             _LOGGER.debug("Saving event for later")
-            events.append(event)
+            events.push(event)
 
     hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
 
@@ -174,7 +175,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
                 _LOGGER.debug("Nothing to upload")
                 break
 
-            events_chunk = events[:chunk_size]
+            events_chunk = events.peek(chunk_size)
             events_chunk_length = len(events_chunk)
             _LOGGER.debug("Uploading chunk of size %s", events_chunk_length)
 
@@ -192,7 +193,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
             if result:
                 # Chunk got saved so remove events
                 _LOGGER.debug("Data was uploaded successfully so deleting data")
-                del events[:events_chunk_length]
+                events.delete(events_chunk_length)
             else:
                 # Unable to write data so give up for now
                 _LOGGER.debug("Error while trying to upload data. Trying again later")
