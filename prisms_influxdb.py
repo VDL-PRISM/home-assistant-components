@@ -31,6 +31,7 @@ DEFAULT_PORT = 8086
 DEFAULT_DATABASE = 'home_assistant'
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
+DEFAULT_BATCH_TIME = 0
 DEFAULT_CHUNK_SIZE = 1000
 
 REQUIREMENTS = ['influxdb==3.0.0']
@@ -62,7 +63,8 @@ CONFIG_SCHEMA = vol.Schema({
         vol.Optional(CONF_WHITELIST, default=[]): cv.ensure_list,
         vol.Optional(CONF_TAGS, default={}): dict,
         vol.Optional(CONF_VALUE_TEMPLATE, default=None): cv.template,
-        vol.Optional(CONF_BATCH_TIME, default=0): cv.positive_int,
+        vol.Optional(CONF_BATCH_TIME,
+                     default=DEFAULT_BATCH_TIME): cv.positive_int,
         vol.Optional(CONF_CHUNK_SIZE,
                      default=DEFAULT_CHUNK_SIZE): cv.positive_int,
     })
