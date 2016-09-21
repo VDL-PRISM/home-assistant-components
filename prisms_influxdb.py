@@ -113,9 +113,10 @@ def setup(hass, config):
             try:
                 json_body = render(event)
                 write_data(influx, json_body)
-            except json.decoder.JSONDecodeError:
+            except json.decoder.JSONDecodeError as e:
                 # Something is wrong with the template. This error can't be
                 # fixed without restarting HA. Remove handler so we don't keep trying.
+                _LOGGER.error("Something is wrong with the provided template: %s", e)
                 hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
                 return
         else:
@@ -162,20 +163,21 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
 
     def action(now):
         while True:
-            events_chunk = events[:chunk_size]
-            events_chunk_length = len(events_chunk)
 
-            if events_chunk_length == 0:
+            if len(events) == 0:
                 # No more events to upload
                 break
 
+            events_chunk = events[:chunk_size]
+            events_chunk_length = len(events_chunk)
             try:
                 # Render and write events
                 data = itertools.chain(*[render(event) for event in events_chunk])
                 result = write_data(influx, list(data))
-            except json.decoder.JSONDecodeError:
+            except json.decoder.JSONDecodeError as e:
                 # Something is wrong with the template. This error can't be
                 # fixed without restarting HA. Remove handler so we don't keep trying.
+                _LOGGER.error("Something is wrong with the provided template: %s", e)
                 hass.bus.listen(EVENT_STATE_CHANGED, event_listener)
                 return
 
