@@ -93,7 +93,8 @@ def setup(hass, config):
                             ssl=conf[CONF_SSL],
                             verify_ssl=conf[CONF_VERIFY_SSL])
 
-    events = PersistentQueue('prisms_influxdb.queue')
+    events = PersistentQueue('prisms_influxdb.queue',
+                             path=hass.config.config_dir)
     render = functools.partial(get_json_body, hass=hass, tags=tags,
                                value_template=value_template)
 
