@@ -35,7 +35,7 @@ DEFAULT_VERIFY_SSL = False
 DEFAULT_BATCH_TIME = 0
 DEFAULT_CHUNK_SIZE = 1000
 
-REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.1.0']
+REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.1.2']
 
 CONF_HOST = 'host'
 CONF_PORT = 'port'
@@ -200,6 +200,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
                 # Chunk got saved so remove events
                 _LOGGER.debug("Data was uploaded successfully so deleting data")
                 events.delete(events_chunk_length)
+                events.flush()
             else:
                 # Unable to write data so give up for now
                 _LOGGER.debug("Error while trying to upload data. Trying again later")
