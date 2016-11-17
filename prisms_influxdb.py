@@ -35,7 +35,7 @@ DEFAULT_VERIFY_SSL = False
 DEFAULT_BATCH_TIME = 0
 DEFAULT_CHUNK_SIZE = 1000
 
-REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.1.2']
+REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.3.0']
 
 CONF_HOST = 'host'
 CONF_PORT = 'port'
