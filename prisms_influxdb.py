@@ -225,7 +225,7 @@ def get_json_body(event, hass, tags, value_template):
     if measurement in (None, ''):
         measurement = state.entity_id
 
-    if template is None:
+    if value_template is None:
         json_body = [
             {
                 'measurement': measurement,
