@@ -136,6 +136,7 @@ class DylosData(object):
 
         try:
             data = None
+            total_packets = 0
 
             while True:
                 _LOGGER.debug("ACKing %s and requesting %s", self.acks, self.size)
@@ -150,7 +151,9 @@ class DylosData(object):
 
                 data = msgpack.unpackb(response.payload, use_list=False)
                 _LOGGER.debug("Received data: %s", data)
+
                 self.acks = len(data)
+                total_packets += self.acks
 
                 keys = ['humidity', 'large', 'monitorname', 'sampletime',
                         'sequence', 'small', 'temperature']
@@ -166,6 +169,11 @@ class DylosData(object):
 
                 # If we get all of the data we ask for, then let's request more right away
                 if self.acks != self.size:
+                    return
+
+                # Let's give the system some time to catch up
+                # We will try again after CONF_UPDATE amount of time
+                if total_packets > 120:
                     return
 
         except Exception:
