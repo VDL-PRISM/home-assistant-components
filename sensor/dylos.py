@@ -135,6 +135,7 @@ class DylosData(object):
         _LOGGER.debug("Getting new data from %s (%s)", self.host, datetime.now())
 
         try:
+            data = None
 
             while True:
                 _LOGGER.debug("ACKing %s and requesting %s", self.acks, self.size)
@@ -168,7 +169,8 @@ class DylosData(object):
                     return
 
         except Exception:
-            _LOGGER.exception("Unable to receive data or unpack data")
+            self.acks = 0
+            _LOGGER.exception("Unable to receive data or unpack data: %s", data)
 
 
 class Client(object):
