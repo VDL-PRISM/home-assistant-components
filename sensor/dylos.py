@@ -1,21 +1,20 @@
 from datetime import datetime, timedelta
-import json
 import logging
 from queue import Queue
 import random
 import struct
+import time
 
 from coapthon.messages.message import Message
 from coapthon import defines
 from coapthon.client.coap import CoAP
 from coapthon.messages.request import Request
-from coapthon.utils import generate_random_token, parse_uri
+from coapthon.utils import generate_random_token
 import msgpack
 import voluptuous as vol
 
-import homeassistant.components.mqtt as mqtt
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_HOST, STATE_UNKNOWN
+from homeassistant.const import CONF_HOST
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import track_point_in_time
@@ -46,31 +45,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
     vol.Optional(CONF_UPDATE, default=60): cv.positive_int
 })
-
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    dylos_data = DylosData(config[CONF_HOST])
-    sensors = []
-
-    for sensor in config[CONF_SENSORS]:
-        dylos = DylosSensor(config[CONF_MONITOR], sensor)
-
-        sensors.append(dylos)
-        dylos_data.add_callback(dylos.update)
-
-    add_devices(sensors)
-
-    def next_time():
-        return dt_util.now() + timedelta(seconds=config[CONF_UPDATE])
-
-    def action(now):
-        dylos_data.update()
-
-        # Schedule again
-        track_point_in_time(hass, action, next_time())
-
-    # Set up reoccurring update
-    track_point_in_time(hass, action, next_time())
-
 
 class DylosSensor(Entity):
     def __init__(self, monitor, sensor_name):
@@ -120,71 +94,147 @@ class DylosSensor(Entity):
         return True
 
 
-class DylosData(object):
-    def __init__(self, host):
+class DylosDevice(object):
+    def __init__(self, host, monitor, callbacks):
         self.host = host
-        self.callbacks = []
+        self.monitor = monitor
+        self.callbacks = callbacks
+        self.ack = 0
+
         self.client = Client(server=(host, 5683))
-        self.acks = 0
+
+
+class DylosData(object):
+    def __init__(self):
+        self.devices = []
+        self.hass = None
+
+        self.started = False
         self.size = 20
 
-    def add_callback(self, cb):
-        self.callbacks.append(cb)
+    def add_host(self, host, monitor, callbacks):
+        self.devices.append(DylosDevice(host, monitor, callbacks))
 
-    def update(self):
-        _LOGGER.debug("Getting new data from %s (%s)", self.host, datetime.now())
+    def start(self):
+        if self.started:
+            return
+        else:
+            self.started = True
+
+        def next_time():
+            # TODO: Change this to be configurable
+            return dt_util.now() + timedelta(seconds=60)
+
+        def action(now):
+            self.update()
+
+            # Schedule again
+            next = next_time()
+            _LOGGER.debug("Scheduling to get data at %s", next)
+            track_point_in_time(self.hass, action, next)
+
+        # Set up reoccurring update
+        next = next_time()
+        _LOGGER.debug("Scheduling to get data at %s", next)
+        track_point_in_time(self.hass, action, next)
+
+    def update_device(self, device):
+        _LOGGER.debug("Getting new data from %s (%s) at %s",
+                      device.host,
+                      device.monitor,
+                      datetime.now())
 
         try:
             data = None
             total_packets = 0
 
             while True:
-                _LOGGER.debug("ACKing %s and requesting %s", self.acks, self.size)
-                payload = struct.pack('!HH', self.acks, self.size)
-                response = self.client.get('air_quality', payload=payload)
+                _LOGGER.debug("ACKing %s and requesting %s (%s - %s)",
+                              device.ack,
+                              self.size,
+                              device.monitor,
+                              device.host)
+                payload = struct.pack('!HH', device.ack, self.size)
+                response = device.client.get('air_quality', payload=payload)
 
                 if response is None:
-                    _LOGGER.debug("Did not receive a response from sensor %s", self.host)
-                    return
+                    _LOGGER.debug(
+                        "Did not receive a response from sensor %s - %s",
+                        device.monitor, device.host)
+                    break
 
-                _LOGGER.debug("Received payload: %s", response.payload)
+                if len(response.payload) == 0:
+                    _LOGGER.debug(
+                        "Received an empty payload from %s - %s",
+                        device.monitor, device.host)
+                    break
 
                 data = msgpack.unpackb(response.payload, use_list=False)
-                _LOGGER.debug("Received data: %s", data)
+                _LOGGER.debug("Received data (%s): %s (%s - %s - %s)",
+                              len(data),
+                              data,
+                              device.monitor,
+                              device.host,
+                              response.mid)
 
-                self.acks = len(data)
-                total_packets += self.acks
+                device.ack = len(data)
+                total_packets += device.ack
 
                 keys = ['humidity', 'large', 'monitorname', 'sampletime',
                         'sequence', 'small', 'temperature']
 
-                # For each new piece of data, notify everyone that has registered
-                # a callback
+                # For each new piece of data, notify everyone that has
+                # registered a callback
                 for d in data:
+                    _LOGGER.debug("Calling callbacks for %s - %s on %s",
+                                  device.monitor,
+                                  device.host, d)
+
                     # Transform data into a dict
                     d = dict(zip(keys, d))
 
-                    for cb in self.callbacks:
+                    for cb in device.callbacks:
                         cb(d)
+                        time.sleep(.1)
 
-                # If we get all of the data we ask for, then let's request more right away
-                if self.acks != self.size:
-                    return
+                # If we get all of the data we ask for, then let's request more
+                # right away
+                if device.ack != self.size:
+                    _LOGGER.debug(
+                        "%s - %s: Stopping because acks (%s) != size (%s)",
+                        device.monitor, device.host, device.ack, self.size)
+                    time.sleep(5)
+                    break
 
                 # Let's give the system some time to catch up
                 # We will try again after CONF_UPDATE amount of time
-                if total_packets > 120:
-                    return
+                if total_packets >= 120:
+                    _LOGGER.debug(
+                        "%s - %s: Stopping because total_packets (%s) > 120",
+                        device.monitor, device.host, total_packets)
+                    time.sleep(5)
+                    break
 
         except Exception:
-            self.acks = 0
-            _LOGGER.exception("Unable to receive data or unpack data: %s", data)
+            device.ack = 0
+            _LOGGER.exception(
+                "Unable to receive data or unpack data: %s (%s - %s)",
+                data, device.monitor, device.host)
+
+    def update(self):
+        _LOGGER.debug("Updating Dylos data")
+
+        for device in self.devices:
+            self.update_device(device)
 
 
 class Client(object):
     def __init__(self, server):
         self.server = server
-        self.protocol = CoAP(self.server, random.randint(1, 65535), self._wait_response, self._timeout)
+        self.protocol = CoAP(self.server,
+                             random.randint(1, 65535),
+                             self._wait_response,
+                             self._timeout)
         self.queue = Queue()
 
     def _wait_response(self, message):
@@ -205,110 +255,45 @@ class Client(object):
             response = self.queue.get(block=True)
             callback(response)
 
-    def cancel_observing(self, response, send_rst):  # pragma: no cover
-        if send_rst:
-            message = Message()
-            message.destination = self.server
-            message.code = defines.Codes.EMPTY.number
-            message.type = defines.Types["RST"]
-            message.token = response.token
-            message.mid = response.mid
-            self.protocol.send_message(message)
-        self.stop()
-
-    def get(self, path, payload=None, callback=None):  # pragma: no cover
+    def get(self, path, payload=None):  # pragma: no cover
         request = Request()
         request.destination = self.server
         request.code = defines.Codes.GET.number
         request.uri_path = path
         request.payload = payload
 
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
+        _LOGGER.debug("%s: Sending GET request with MID: %s", self.server[0], request.mid)
+        self.protocol.send_message(request)
+        response = self.queue.get(block=True)
+        _LOGGER.debug("%s: Got response to GET request with MID: %s", self.server[0], request.mid)
+        return response
 
-    def observe(self, path, callback):  # pragma: no cover
-        request = Request()
-        request.destination = self.server
-        request.code = defines.Codes.GET.number
-        request.uri_path = path
-        request.observe = 0
-
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
-
-    def delete(self, path, callback=None):  # pragma: no cover
-        request = Request()
-        request.destination = self.server
-        request.code = defines.Codes.DELETE.number
-        request.uri_path = path
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
-
-    def post(self, path, payload, callback=None):  # pragma: no cover
-        request = Request()
-        request.destination = self.server
-        request.code = defines.Codes.POST.number
-        request.token = generate_random_token(2)
-        request.uri_path = path
-        request.payload = payload
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
-
-    def put(self, path, payload, callback=None):  # pragma: no cover
-        request = Request()
-        request.destination = self.server
-        request.code = defines.Codes.PUT.number
-        request.uri_path = path
-        request.payload = payload
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
-
-    def discover(self, callback=None):  # pragma: no cover
+    def discover(self):  # pragma: no cover
         request = Request()
         request.destination = self.server
         request.code = defines.Codes.GET.number
         request.uri_path = defines.DISCOVERY_URL
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
 
-    def send_request(self, request, callback=None):  # pragma: no cover
-        if callback is not None:
-            thread = threading.Thread(target=self._thread_body, args=(request, callback))
-            thread.start()
-        else:
-            self.protocol.send_message(request)
-            response = self.queue.get(block=True)
-            return response
+        self.protocol.send_message(request)
+        response = self.queue.get(block=True)
+        return response
 
-    def send_empty(self, empty):  # pragma: no cover
-        self.protocol.send_message(empty)
+
+dylos_data = DylosData()
+
+def setup_platform(hass, config, add_devices, discovery_info=None):
+    dylos_data.hass = hass
+
+    sensors = []
+    callbacks = []
+    for sensor in config[CONF_SENSORS]:
+        dylos = DylosSensor(config[CONF_MONITOR], sensor)
+
+        sensors.append(dylos)
+        callbacks.append(dylos.update)
+
+    dylos_data.add_host(config[CONF_HOST], config[CONF_MONITOR], callbacks)
+    add_devices(sensors)
+
+    dylos_data.start()
+
