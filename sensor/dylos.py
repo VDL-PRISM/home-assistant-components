@@ -29,6 +29,8 @@ REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.0']
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
 CONF_UPDATE = 'update_time'
+CONF_BATCH_SIZE = 'batch_size'
+CONF_MAX_DATA_TRANSFERED = 'max_data_transfered'
 
 DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small', 'sequence']
 SENSOR_TYPES = {
@@ -45,11 +47,16 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
         vol.Required(CONF_HOST): cv.string
     }],
     vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
-    vol.Optional(CONF_UPDATE, default=60): cv.positive_int
+    vol.Optional(CONF_UPDATE, default=60): cv.positive_int,
+    vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
+    vol.Optional(CONF_MAX_DATA_TRANSFERED, default=120): cv.positive_int,
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
-    dylos_data = DylosData(hass, config[CONF_UPDATE])
+    def next_data_time():
+        return dt_util.now() + timedelta(seconds=config[CONF_UPDATE])
+
+    devices = []
     sensors = []
 
     for monitor in config[CONF_MONITORS]:
@@ -60,12 +67,122 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             sensors.append(dylos_sensor)
             callbacks.append(dylos_sensor.update)
 
-        dylos_data.add_device(DylosDevice(monitor[CONF_HOST],
-                                          monitor[CONF_NAME],
-                                          callbacks))
+        devices.append(DylosDevice(monitor[CONF_HOST],
+                                   monitor[CONF_NAME],
+                                   callbacks))
 
+    def data_action(now):
+        for device in devices:
+            get_data(device,
+                     config[CONF_BATCH_SIZE],
+                     config[CONF_MAX_DATA_TRANSFERED])
+
+        # Schedule again
+        next = next_data_time()
+        _LOGGER.debug("Scheduling to get data at %s", next)
+        track_point_in_time(hass, data_action, next)
+
+    # Set up reoccurring update
+    next = next_data_time()
+    _LOGGER.debug("Scheduling to get data at %s", next)
+    track_point_in_time(hass, data_action, next)
+
+    # Finish setting up
     add_devices(sensors)
-    dylos_data.start()
+
+
+def get_data(device, batch_size, max_data_transfered):
+    _LOGGER.debug("Getting new data from %s (%s) at %s",
+                  device.host,
+                  device.monitor,
+                  datetime.now())
+
+    try:
+        data = None
+        total_packets = 0
+
+        while True:
+            _LOGGER.debug("ACKing %s and requesting %s (%s - %s)",
+                          device.ack,
+                          batch_size,
+                          device.monitor,
+                          device.host)
+            payload = struct.pack('!HH', device.ack, batch_size)
+            response = device.client.get('air_quality', payload=payload)
+
+            if response is None:
+                _LOGGER.debug(
+                    "Did not receive a response from sensor %s - %s",
+                    device.monitor, device.host)
+                break
+
+            if len(response.payload) == 0:
+                _LOGGER.debug(
+                    "Received an empty payload from %s - %s",
+                    device.monitor, device.host)
+                break
+
+            data = msgpack.unpackb(response.payload, use_list=False)
+            _LOGGER.debug("Received data (%s): %s (%s - %s - %s)",
+                          len(data),
+                          data,
+                          device.monitor,
+                          device.host,
+                          response.mid)
+
+            device.ack = len(data)
+            total_packets += device.ack
+
+            keys = ['humidity', 'large', 'monitorname', 'sampletime',
+                    'sequence', 'small', 'temperature']
+
+            # For each new piece of data, notify everyone that has
+            # registered a callback
+            for d in data:
+                _LOGGER.debug("Calling callbacks for %s - %s on %s",
+                              device.monitor,
+                              device.host, d)
+
+                # Transform data into a dict
+                d = dict(zip(keys, d))
+
+                for cb in device.callbacks:
+                    cb(d)
+                    time.sleep(.1)
+
+            # If we get all of the data we ask for, then let's request more
+            # right away
+            if device.ack != batch_size:
+                _LOGGER.debug(
+                    "%s - %s: Stopping because acks (%s) != size (%s)",
+                    device.monitor, device.host, device.ack, batch_size)
+                time.sleep(5)
+                break
+
+            # Let's give the system some time to catch up
+            # We will try again after CONF_UPDATE amount of time
+            if total_packets >= max_data_transfered:
+                _LOGGER.debug(
+                    "%s - %s: Stopping because total_packets (%s) > %s",
+                    device.monitor, device.host, total_packets, max_data_transfered)
+                time.sleep(5)
+                break
+
+    except Exception:
+        device.ack = 0
+        _LOGGER.exception(
+            "Unable to receive data or unpack data: %s (%s - %s)",
+            data, device.monitor, device.host)
+
+
+class DylosDevice(object):
+    def __init__(self, host, monitor, callbacks):
+        self.host = host
+        self.monitor = monitor
+        self.callbacks = callbacks
+        self.ack = 0
+
+        self.client = Client(server=(host, 5683))
 
 
 class DylosSensor(Entity):
@@ -114,134 +231,6 @@ class DylosSensor(Entity):
     @property
     def force_update(self):
         return True
-
-
-class DylosDevice(object):
-    def __init__(self, host, monitor, callbacks):
-        self.host = host
-        self.monitor = monitor
-        self.callbacks = callbacks
-        self.ack = 0
-
-        self.client = Client(server=(host, 5683))
-
-
-class DylosData(object):
-    def __init__(self, hass, update_time):
-        self.hass = hass
-        self.update_time = update_time
-        self.devices = []
-
-        self.size = 20
-
-    def add_device(self, device):
-        self.devices.append(device)
-
-    def start(self):
-        def next_time():
-            return dt_util.now() + timedelta(seconds=self.update_time)
-
-        def action(now):
-            self.update()
-
-            # Schedule again
-            next = next_time()
-            _LOGGER.debug("Scheduling to get data at %s", next)
-            track_point_in_time(self.hass, action, next)
-
-        # Set up reoccurring update
-        next = next_time()
-        _LOGGER.debug("Scheduling to get data at %s", next)
-        track_point_in_time(self.hass, action, next)
-
-    def update_device(self, device):
-        _LOGGER.debug("Getting new data from %s (%s) at %s",
-                      device.host,
-                      device.monitor,
-                      datetime.now())
-
-        try:
-            data = None
-            total_packets = 0
-
-            while True:
-                _LOGGER.debug("ACKing %s and requesting %s (%s - %s)",
-                              device.ack,
-                              self.size,
-                              device.monitor,
-                              device.host)
-                payload = struct.pack('!HH', device.ack, self.size)
-                response = device.client.get('air_quality', payload=payload)
-
-                if response is None:
-                    _LOGGER.debug(
-                        "Did not receive a response from sensor %s - %s",
-                        device.monitor, device.host)
-                    break
-
-                if len(response.payload) == 0:
-                    _LOGGER.debug(
-                        "Received an empty payload from %s - %s",
-                        device.monitor, device.host)
-                    break
-
-                data = msgpack.unpackb(response.payload, use_list=False)
-                _LOGGER.debug("Received data (%s): %s (%s - %s - %s)",
-                              len(data),
-                              data,
-                              device.monitor,
-                              device.host,
-                              response.mid)
-
-                device.ack = len(data)
-                total_packets += device.ack
-
-                keys = ['humidity', 'large', 'monitorname', 'sampletime',
-                        'sequence', 'small', 'temperature']
-
-                # For each new piece of data, notify everyone that has
-                # registered a callback
-                for d in data:
-                    _LOGGER.debug("Calling callbacks for %s - %s on %s",
-                                  device.monitor,
-                                  device.host, d)
-
-                    # Transform data into a dict
-                    d = dict(zip(keys, d))
-
-                    for cb in device.callbacks:
-                        cb(d)
-                        time.sleep(.1)
-
-                # If we get all of the data we ask for, then let's request more
-                # right away
-                if device.ack != self.size:
-                    _LOGGER.debug(
-                        "%s - %s: Stopping because acks (%s) != size (%s)",
-                        device.monitor, device.host, device.ack, self.size)
-                    time.sleep(5)
-                    break
-
-                # Let's give the system some time to catch up
-                # We will try again after CONF_UPDATE amount of time
-                if total_packets >= 120:
-                    _LOGGER.debug(
-                        "%s - %s: Stopping because total_packets (%s) > 120",
-                        device.monitor, device.host, total_packets)
-                    time.sleep(5)
-                    break
-
-        except Exception:
-            device.ack = 0
-            _LOGGER.exception(
-                "Unable to receive data or unpack data: %s (%s - %s)",
-                data, device.monitor, device.host)
-
-    def update(self):
-        _LOGGER.debug("Updating Dylos data")
-
-        for device in self.devices:
-            self.update_device(device)
 
 
 class Client(object):
