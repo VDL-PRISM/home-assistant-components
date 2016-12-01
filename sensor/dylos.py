@@ -14,7 +14,7 @@ import msgpack
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_HOST
+from homeassistant.const import CONF_HOST, CONF_NAME
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import track_point_in_time
@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 DEPENDENCIES = []
 REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.0']
 
-CONF_MONITOR = 'monitor'
+CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
 CONF_UPDATE = 'update_time'
 
@@ -40,11 +40,33 @@ SENSOR_TYPES = {
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_MONITOR): cv.string,
-    vol.Required(CONF_HOST): cv.string,
+    vol.Required(CONF_MONITORS): [{
+        vol.Required(CONF_NAME): cv.string,
+        vol.Required(CONF_HOST): cv.string
+    }],
     vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
     vol.Optional(CONF_UPDATE, default=60): cv.positive_int
 })
+
+def setup_platform(hass, config, add_devices, discovery_info=None):
+    dylos_data = DylosData(hass, config[CONF_UPDATE])
+    sensors = []
+
+    for monitor in config[CONF_MONITORS]:
+        callbacks = []
+
+        for sensor in config[CONF_SENSORS]:
+            dylos_sensor = DylosSensor(monitor[CONF_NAME], sensor)
+            sensors.append(dylos_sensor)
+            callbacks.append(dylos_sensor.update)
+
+        dylos_data.add_device(DylosDevice(monitor[CONF_HOST],
+                                          monitor[CONF_NAME],
+                                          callbacks))
+
+    add_devices(sensors)
+    dylos_data.start()
+
 
 class DylosSensor(Entity):
     def __init__(self, monitor, sensor_name):
@@ -105,25 +127,19 @@ class DylosDevice(object):
 
 
 class DylosData(object):
-    def __init__(self):
+    def __init__(self, hass, update_time):
+        self.hass = hass
+        self.update_time = update_time
         self.devices = []
-        self.hass = None
 
-        self.started = False
         self.size = 20
 
-    def add_host(self, host, monitor, callbacks):
-        self.devices.append(DylosDevice(host, monitor, callbacks))
+    def add_device(self, device):
+        self.devices.append(device)
 
     def start(self):
-        if self.started:
-            return
-        else:
-            self.started = True
-
         def next_time():
-            # TODO: Change this to be configurable
-            return dt_util.now() + timedelta(seconds=60)
+            return dt_util.now() + timedelta(seconds=self.update_time)
 
         def action(now):
             self.update()
@@ -262,7 +278,6 @@ class Client(object):
         request.uri_path = path
         request.payload = payload
 
-        _LOGGER.debug("%s: Sending GET request with MID: %s", self.server[0], request.mid)
         self.protocol.send_message(request)
         response = self.queue.get(block=True)
         _LOGGER.debug("%s: Got response to GET request with MID: %s", self.server[0], request.mid)
@@ -277,23 +292,4 @@ class Client(object):
         self.protocol.send_message(request)
         response = self.queue.get(block=True)
         return response
-
-
-dylos_data = DylosData()
-
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    dylos_data.hass = hass
-
-    sensors = []
-    callbacks = []
-    for sensor in config[CONF_SENSORS]:
-        dylos = DylosSensor(config[CONF_MONITOR], sensor)
-
-        sensors.append(dylos)
-        callbacks.append(dylos.update)
-
-    dylos_data.add_host(config[CONF_HOST], config[CONF_MONITOR], callbacks)
-    add_devices(sensors)
-
-    dylos_data.start()
 
