@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import logging
 from queue import Queue, Empty
 import random
+import re
 import struct
 import time
 
@@ -24,7 +25,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.0']
+REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.1']
 
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
@@ -89,7 +90,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         _LOGGER.debug("Scheduling to get data at %s", next)
         track_point_in_time(hass, data_action, next)
 
-    # Set up reoccurring update
+    # Schedule a time to update
     next = next_data_time()
     _LOGGER.debug("Scheduling to get data at %s", next)
     track_point_in_time(hass, data_action, next)
@@ -104,10 +105,9 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         track_point_in_time(hass, discover_action, next)
 
     if config[CONF_DISCOVER]:
-        # Set up reoccurring discovery
-        next = next_discover_time()
-        _LOGGER.debug("Scheduling to discover at %s", next)
-        track_point_in_time(hass, discover_action, next)
+        # Start discovery
+        _LOGGER.debug("Discovering new sensors now")
+        discover_action(None)
 
     # Finish setting up
     add_devices(sensors)
@@ -125,36 +125,42 @@ def discover(devices, add_devices, config_sensor):
             # It's not a dylos sensor
             continue
 
-        hostname = response.source[0]
-        _LOGGER.debug("Found device: %s", hostname)
-        if hostname in devices:
-            _LOGGER.debug("Dylos device has already been discovered")
+        # Get the hostname
+        m = re.search("</name=(.*?)>", response.payload.decode('utf8'))
+        if m is None:
+            _LOGGER.warning("Couldn't find hostname in response: %s", response)
             continue
 
-        # TODO: Get name of device
+        name = m.group(1)
+        address = address = response.source[0]
+        _LOGGER.debug("Found device: %s - %s", address, name)
+
+        if address in devices:
+            _LOGGER.debug("Dylos device has already been discovered")
+            continue
 
         # Add the new device to home assistant
         sensors = []
         callbacks = []
 
-        _LOGGER.debug("Adding %s to home assistant", hostname)
+        _LOGGER.debug("Adding %s to home assistant", address)
         for sensor in config_sensor:
-            dylos_sensor = DylosSensor('???', sensor)
+            dylos_sensor = DylosSensor(name, sensor)
             sensors.append(dylos_sensor)
             callbacks.append(dylos_sensor.update)
 
 
-        devices[hostname] = DylosDevice(hostname,
-                                        '???',
-                                        callbacks)
+        devices[address] = DylosDevice(address,
+                                       name,
+                                       callbacks)
         add_devices(sensors)
 
 
 
 def get_data(device, batch_size, max_data_transfered):
     _LOGGER.debug("Getting new data from %s (%s) at %s",
-                  device.host,
-                  device.monitor,
+                  device.name,
+                  device.address,
                   datetime.now())
 
     try:
@@ -165,43 +171,50 @@ def get_data(device, batch_size, max_data_transfered):
             _LOGGER.debug("ACKing %s and requesting %s (%s - %s)",
                           device.ack,
                           batch_size,
-                          device.monitor,
-                          device.host)
+                          device.name,
+                          device.address)
             payload = struct.pack('!HH', device.ack, batch_size)
             response = device.client.get('air_quality', payload=payload)
 
             if response is None:
                 _LOGGER.debug(
                     "Did not receive a response from sensor %s - %s",
-                    device.monitor, device.host)
+                    device.name, device.address)
                 break
 
             if len(response.payload) == 0:
                 _LOGGER.debug(
                     "Received an empty payload from %s - %s",
-                    device.monitor, device.host)
+                    device.name, device.address)
                 break
 
             data = msgpack.unpackb(response.payload, use_list=False)
             _LOGGER.debug("Received data (%s): %s (%s - %s - %s)",
                           len(data),
                           data,
-                          device.monitor,
-                          device.host,
+                          device.name,
+                          device.address,
                           response.mid)
 
             device.ack = len(data)
             total_packets += device.ack
 
-            keys = ['humidity', 'large', 'monitorname', 'sampletime',
+            keys = ['humidity', 'large', 'sampletime',
                     'sequence', 'small', 'temperature']
 
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
                 _LOGGER.debug("Calling callbacks for %s - %s on %s",
-                              device.monitor,
-                              device.host, d)
+                              device.name,
+                              device.address, d)
+
+                # Make sure data matches the number of keys expected
+                if len(keys) != len(d):
+                    _LOGGER.warning(
+                        "Data does not match the number of keys. Ignoring: %s",
+                        d)
+                    continue
 
                 # Transform data into a dict
                 d = dict(zip(keys, d))
@@ -215,7 +228,7 @@ def get_data(device, batch_size, max_data_transfered):
             if device.ack != batch_size:
                 _LOGGER.debug(
                     "%s - %s: Stopping because acks (%s) != size (%s)",
-                    device.monitor, device.host, device.ack, batch_size)
+                    device.name, device.address, device.ack, batch_size)
                 time.sleep(5)
                 break
 
@@ -224,7 +237,7 @@ def get_data(device, batch_size, max_data_transfered):
             if total_packets >= max_data_transfered:
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
-                    device.monitor, device.host, total_packets, max_data_transfered)
+                    device.name, device.address, total_packets, max_data_transfered)
                 time.sleep(5)
                 break
 
@@ -232,22 +245,22 @@ def get_data(device, batch_size, max_data_transfered):
         device.ack = 0
         _LOGGER.exception(
             "Unable to receive data or unpack data: %s (%s - %s)",
-            data, device.monitor, device.host)
+            data, device.name, device.address)
 
 
 class DylosDevice(object):
-    def __init__(self, host, monitor, callbacks):
-        self.host = host
-        self.monitor = monitor
+    def __init__(self, address, name, callbacks):
+        self.address = address
+        self.name = name
         self.callbacks = callbacks
         self.ack = 0
 
-        self.client = Client(server=(host, 5683))
+        self.client = Client(server=(address, 5683))
 
 
 class DylosSensor(Entity):
-    def __init__(self, monitor, sensor_name):
-        self._monitor = monitor
+    def __init__(self, monitor_name, sensor_name):
+        self._monitor_name = monitor_name
         self._name = sensor_name
         self._unit_of_measurement = SENSOR_TYPES[sensor_name]
         self._data = None
@@ -264,7 +277,7 @@ class DylosSensor(Entity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return '{} {}'.format(self._monitor, self._name)
+        return '{} {}'.format(self._monitor_name, self._name)
 
     @property
     def unit_of_measurement(self):
