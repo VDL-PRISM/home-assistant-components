@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import logging
-from queue import Queue
+from queue import Queue, Empty
 import random
 import struct
 import time
@@ -28,7 +28,9 @@ REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.0']
 
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
-CONF_UPDATE = 'update_time'
+CONF_DISCOVER = 'discovery'
+CONF_UPDATE_TIME = 'update_time'
+CONF_DISCOVER_TIME = 'discover_time'
 CONF_BATCH_SIZE = 'batch_size'
 CONF_MAX_DATA_TRANSFERED = 'max_data_transfered'
 
@@ -42,21 +44,26 @@ SENSOR_TYPES = {
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_MONITORS): [{
+    vol.Optional(CONF_MONITORS, default=[]): [{
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_HOST): cv.string
     }],
+    vol.Optional(CONF_DISCOVER, default=True): cv.boolean,
     vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
-    vol.Optional(CONF_UPDATE, default=60): cv.positive_int,
+    vol.Optional(CONF_UPDATE_TIME, default=60): cv.positive_int,
+    vol.Optional(CONF_DISCOVER_TIME, default=300): cv.positive_int,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERED, default=120): cv.positive_int,
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     def next_data_time():
-        return dt_util.now() + timedelta(seconds=config[CONF_UPDATE])
+        return dt_util.now() + timedelta(seconds=config[CONF_UPDATE_TIME])
 
-    devices = []
+    def next_discover_time():
+        return dt_util.now() + timedelta(seconds=config[CONF_DISCOVER_TIME])
+
+    devices = {}
     sensors = []
 
     for monitor in config[CONF_MONITORS]:
@@ -67,12 +74,12 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             sensors.append(dylos_sensor)
             callbacks.append(dylos_sensor.update)
 
-        devices.append(DylosDevice(monitor[CONF_HOST],
-                                   monitor[CONF_NAME],
-                                   callbacks))
+        devices[monitor[CONF_HOST]] = DylosDevice(monitor[CONF_HOST],
+                                                  monitor[CONF_NAME],
+                                                  callbacks)
 
     def data_action(now):
-        for device in devices:
+        for device in devices.values():
             get_data(device,
                      config[CONF_BATCH_SIZE],
                      config[CONF_MAX_DATA_TRANSFERED])
@@ -87,8 +94,61 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     _LOGGER.debug("Scheduling to get data at %s", next)
     track_point_in_time(hass, data_action, next)
 
+
+    def discover_action(now):
+        discover(devices, add_devices, config[CONF_SENSORS])
+
+        # Schedule again
+        next = next_discover_time()
+        _LOGGER.debug("Scheduling to discover at %s", next)
+        track_point_in_time(hass, discover_action, next)
+
+    if config[CONF_DISCOVER]:
+        # Set up reoccurring discovery
+        next = next_discover_time()
+        _LOGGER.debug("Scheduling to discover at %s", next)
+        track_point_in_time(hass, discover_action, next)
+
     # Finish setting up
     add_devices(sensors)
+
+
+def discover(devices, add_devices, config_sensor):
+    # Connect to multicast address
+    client = Client(server=('224.0.1.187', 5683))
+
+    responses = client.multicast_discover()
+
+    for response in responses:
+        # TODO: I should actually parse the response and not just match
+        if b'</air_quality>' not in response.payload:
+            # It's not a dylos sensor
+            continue
+
+        hostname = response.source[0]
+        _LOGGER.debug("Found device: %s", hostname)
+        if hostname in devices:
+            _LOGGER.debug("Dylos device has already been discovered")
+            continue
+
+        # TODO: Get name of device
+
+        # Add the new device to home assistant
+        sensors = []
+        callbacks = []
+
+        _LOGGER.debug("Adding %s to home assistant", hostname)
+        for sensor in config_sensor:
+            dylos_sensor = DylosSensor('???', sensor)
+            sensors.append(dylos_sensor)
+            callbacks.append(dylos_sensor.update)
+
+
+        devices[hostname] = DylosDevice(hostname,
+                                        '???',
+                                        callbacks)
+        add_devices(sensors)
+
 
 
 def get_data(device, batch_size, max_data_transfered):
@@ -160,7 +220,7 @@ def get_data(device, batch_size, max_data_transfered):
                 break
 
             # Let's give the system some time to catch up
-            # We will try again after CONF_UPDATE amount of time
+            # We will try again after CONF_UPDATE_TIME amount of time
             if total_packets >= max_data_transfered:
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
@@ -272,13 +332,21 @@ class Client(object):
         _LOGGER.debug("%s: Got response to GET request with MID: %s", self.server[0], request.mid)
         return response
 
-    def discover(self):  # pragma: no cover
+    def multicast_discover(self): # pragma: no cover
         request = Request()
         request.destination = self.server
         request.code = defines.Codes.GET.number
         request.uri_path = defines.DISCOVERY_URL
 
         self.protocol.send_message(request)
-        response = self.queue.get(block=True)
-        return response
+
+        responses = []
+
+        try:
+            while True:
+                responses.append(self.queue.get(block=True, timeout=5))
+        except Empty:
+            pass
+
+        return responses
 
