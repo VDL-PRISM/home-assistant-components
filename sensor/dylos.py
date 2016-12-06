@@ -35,6 +35,8 @@ CONF_DISCOVER_TIME = 'discover_time'
 CONF_BATCH_SIZE = 'batch_size'
 CONF_MAX_DATA_TRANSFERED = 'max_data_transfered'
 
+SECONDS_IN_A_YEAR = 31536000
+
 DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small', 'sequence']
 SENSOR_TYPES = {
     'temperature': '°C',
@@ -211,6 +213,7 @@ def get_data(device, batch_size, max_data_transfered):
 
             keys = ['humidity', 'large', 'sampletime',
                     'sequence', 'small', 'temperature']
+            now = time.time()
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -224,6 +227,13 @@ def get_data(device, batch_size, max_data_transfered):
 
                 # Transform data into a dict
                 d = dict(zip(keys, d))
+
+                # Make sure the timestamp makes sense
+                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
+                    _LOGGER.warning(
+                        "Sample time is too far off: %s. Ignoring data: %s",
+                        d['sampletime'],
+                        d)
 
                 _LOGGER.debug("Calling callbacks for %s - %s on %s",
                               device.name,
