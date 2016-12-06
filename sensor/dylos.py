@@ -81,9 +81,14 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     def data_action(now):
         for device in devices.values():
-            get_data(device,
-                     config[CONF_BATCH_SIZE],
-                     config[CONF_MAX_DATA_TRANSFERED])
+            try:
+                get_data(device,
+                         config[CONF_BATCH_SIZE],
+                         config[CONF_MAX_DATA_TRANSFERED])
+            except Exception as exp:
+                _LOGGER.error("Error occurred while getting data from %s: %s",
+                              device,
+                              exp)
 
         # Schedule again
         next = next_data_time()
@@ -97,7 +102,10 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
 
     def discover_action(now):
-        discover(devices, add_devices, config[CONF_SENSORS])
+        try:
+            discover(devices, add_devices, config[CONF_SENSORS])
+        except Exception as exp:
+            _LOGGER.error("Error occurred while discovering devices: %s", exp)
 
         # Schedule again
         next = next_discover_time()
