@@ -181,9 +181,9 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
                 _LOGGER.debug("Nothing to upload")
                 break
 
-            events_chunk = events.peek(chunk_size)
-            events_chunk_length = len(events_chunk)
-            _LOGGER.debug("Uploading chunk of size %s", events_chunk_length)
+            size = min(len(events), chunk_size)
+            events_chunk = events.peek(size)
+            _LOGGER.debug("Uploading chunk of size %s", size)
 
             try:
                 # Render and write events
@@ -199,8 +199,15 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
             if result:
                 # Chunk got saved so remove events
                 _LOGGER.debug("Data was uploaded successfully so deleting data")
-                events.delete(events_chunk_length)
+                events.delete(size)
                 events.flush()
+
+                if size <= chunk_size:
+                    _LOGGER.debug("Finished uploading data because size <= than"
+                                  " chunk_size: %s < %s (%s)", size,
+                                  chunk_size, len(events))
+                    break
+
             else:
                 # Unable to write data so give up for now
                 _LOGGER.debug("Error while trying to upload data. Trying again later")
