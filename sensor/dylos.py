@@ -119,6 +119,7 @@ def discover(devices, add_devices, config_sensor):
 
     responses = client.multicast_discover()
 
+    _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
         # TODO: I should actually parse the response and not just match
         if b'</air_quality>' not in response.payload:
@@ -205,10 +206,6 @@ def get_data(device, batch_size, max_data_transfered):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                _LOGGER.debug("Calling callbacks for %s - %s on %s",
-                              device.name,
-                              device.address, d)
-
                 # Make sure data matches the number of keys expected
                 if len(keys) != len(d):
                     _LOGGER.warning(
@@ -219,6 +216,10 @@ def get_data(device, batch_size, max_data_transfered):
                 # Transform data into a dict
                 d = dict(zip(keys, d))
 
+                _LOGGER.debug("Calling callbacks for %s - %s on %s",
+                              device.name,
+                              device.address,
+                              d)
                 for cb in device.callbacks:
                     cb(d)
                     time.sleep(.1)
@@ -357,7 +358,7 @@ class Client(object):
 
         try:
             while True:
-                responses.append(self.queue.get(block=True, timeout=5))
+                responses.append(self.queue.get(block=True, timeout=10))
         except Empty:
             pass
 
