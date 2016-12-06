@@ -80,7 +80,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
                                                   callbacks)
 
     def data_action(now):
-        for device in devices.values():
+        device_list = list(devices.values())
+        for device in device_list:
             try:
                 get_data(device,
                          config[CONF_BATCH_SIZE],
