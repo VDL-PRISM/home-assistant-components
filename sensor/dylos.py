@@ -25,7 +25,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.2']
+REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.3']
 
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
@@ -89,9 +89,10 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
                          config[CONF_BATCH_SIZE],
                          config[CONF_MAX_DATA_TRANSFERED])
             except Exception as exp:
-                _LOGGER.error("Error occurred while getting data from %s: %s",
-                              device,
-                              exp)
+                _LOGGER.exception(
+                    "Error occurred while getting data from %s: %s",
+                    device,
+                    exp)
 
         # Schedule again
         next = next_data_time()
@@ -108,7 +109,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         try:
             discover(devices, add_devices, config[CONF_SENSORS])
         except Exception as exp:
-            _LOGGER.error("Error occurred while discovering devices: %s", exp)
+            _LOGGER.exception("Error occurred while discovering devices: %s",
+                              exp)
 
         # Schedule again
         next = next_discover_time()
