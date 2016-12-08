@@ -129,8 +129,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 def discover(devices, add_devices, config_sensor):
     # Connect to multicast address
     client = Client(server=('224.0.1.187', 5683))
-
     responses = client.multicast_discover()
+    client.stop()
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
@@ -348,12 +348,6 @@ class Client(object):
     def stop(self):
         self.protocol.stopped.set()
         self.queue.put(None)
-
-    def _thread_body(self, request, callback):
-        self.protocol.send_message(request)
-        while not self.protocol.stopped.isSet():
-            response = self.queue.get(block=True)
-            callback(response)
 
     def get(self, path, payload=None):  # pragma: no cover
         request = Request()
