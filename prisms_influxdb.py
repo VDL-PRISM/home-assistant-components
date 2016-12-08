@@ -122,9 +122,6 @@ def setup(hass, config):
                 _LOGGER.error("Something is wrong with the provided template: %s", e)
                 return
         else:
-            # Store event to be uploaded later
-            _LOGGER.debug("Saving event for later")
-
             # Convert object to pickle-able. Since State.attributes uses
             # MappingProxyType, it is not pickle-able
             if event.data['new_state']:
@@ -133,7 +130,9 @@ def setup(hass, config):
             if event.data['old_state']:
                 event.data['old_state'].attributes = dict(event.data['old_state'].attributes)
 
+            # Store event to be uploaded later
             events.push(event)
+            _LOGGER.debug("Saving event for later (%s)", len(events))
 
     hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
 
