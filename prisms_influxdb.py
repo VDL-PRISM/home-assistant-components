@@ -85,6 +85,8 @@ def setup(hass, config):
     batch_time = conf[CONF_BATCH_TIME]
     chunk_size = conf[CONF_CHUNK_SIZE]
 
+    template.attach(hass, value_template)
+
     influx = InfluxDBClient(host=conf[CONF_HOST],
                             port=conf[CONF_PORT],
                             username=conf[CONF_USERNAME],
