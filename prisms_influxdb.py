@@ -177,8 +177,8 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 _LOGGER.debug("Nothing to upload")
                 break
 
-            size = min(len(events), chunk_size)
-            events_chunk = events.peek(size)
+            events_chunk = events.peek(chunk_size)
+            size = len(events_chunk)
             _LOGGER.debug("Uploading chunk of size %s", size)
 
             try:
@@ -196,7 +196,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 events.flush()
 
                 if size <= chunk_size:
-                    _LOGGER.debug("Finished uploading data because size <= than"
+                    _LOGGER.debug("Finished uploading data because size <="
                                   " chunk_size: %s < %s (%s)", size,
                                   chunk_size, len(events))
                     break
