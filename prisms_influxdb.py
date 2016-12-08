@@ -118,7 +118,7 @@ def setup(hass, config):
                 _LOGGER.debug("Since batch_time == 0, writing data")
                 json_body = render(event)
                 write_data(influx, json_body)
-            except json.decoder.JSONDecodeError as e:
+            except ValueError as e:
                 _LOGGER.error("Something is wrong with the provided template: %s", e)
                 return
         else:
@@ -185,7 +185,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 # Render and write events
                 data = itertools.chain(*[render(event) for event in events_chunk])
                 result = write_data(influx, list(data))
-            except json.decoder.JSONDecodeError as e:
+            except ValueError as e:
                 _LOGGER.error("Something is wrong with the provided template: %s", e)
                 return
 
@@ -246,7 +246,7 @@ def get_json_body(event, hass, tags, value_template):
 
         try:
             json_body = json.loads(json_body)
-        except json.decoder.JSONDecodeError as e:
+        except ValueError as e:
             _LOGGER.error('%s does not result in valid json: %s: %s',
                           CONF_VALUE_TEMPLATE, e, json_body)
             raise e
