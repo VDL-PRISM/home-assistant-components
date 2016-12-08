@@ -33,7 +33,7 @@ DEFAULT_DATABASE = 'home_assistant'
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
 DEFAULT_BATCH_TIME = 0
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 500
 
 REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.3.0']
 
@@ -179,7 +179,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
 
             events_chunk = events.peek(chunk_size)
             size = len(events_chunk)
-            _LOGGER.debug("Uploading chunk of size %s", size)
+            _LOGGER.debug("Uploading chunk of size %s (%s)", size, len(events))
 
             try:
                 # Render and write events
@@ -195,8 +195,8 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 events.delete(size)
                 events.flush()
 
-                if size <= chunk_size:
-                    _LOGGER.debug("Finished uploading data because size <="
+                if size < chunk_size:
+                    _LOGGER.debug("Finished uploading data because size <"
                                   " chunk_size: %s < %s (%s)", size,
                                   chunk_size, len(events))
                     break
