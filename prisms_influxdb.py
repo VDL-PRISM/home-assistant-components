@@ -239,10 +239,10 @@ def get_json_body(event, hass, tags, value_template):
             }
         ]
     else:
-        json_body = template.render(hass, value_template, event=event,
-                                    measurement=measurement, state=state,
-                                    state_value=_state)
-
+        json_body = value_template.render(event=event,
+                                          measurement=measurement,
+                                          state=state,
+                                          state_value=_state)
         try:
             json_body = json.loads(json_body)
         except ValueError as e:
