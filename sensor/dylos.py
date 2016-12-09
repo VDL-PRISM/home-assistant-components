@@ -358,6 +358,16 @@ class Client(object):
         request.uri_path = path
         request.payload = payload
 
+        # Clear out queue before sending a request. It is possible that an old
+        # response was received between requests. We don't want the requests
+        # and responses to be mismatched. I expect the protocol to take care of
+        # that, but I don't have confidence in the CoAP library.
+        try:
+            while True:
+                self.queue.get_nowait()
+        except Empty:
+            pass
+
         self.protocol.send_message(request)
         response = self.queue.get(block=True)
         _LOGGER.debug("%s: Got response to GET request with MID: %s", self.server[0], request.mid)
