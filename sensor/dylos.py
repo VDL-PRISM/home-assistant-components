@@ -382,9 +382,15 @@ class Client(object):
         request.uri_path = defines.DISCOVERY_URL
 
         self.protocol.send_message(request)
+        first_response = self.queue.get(block=True)
 
-        responses = []
+        if first_response is None:
+            # The message timed out
+            return []
+
+        responses = [first_response]
         try:
+            # Keep trying to get more responses if they come in
             while True:
                 responses.append(self.queue.get(block=True, timeout=10))
         except Empty:
