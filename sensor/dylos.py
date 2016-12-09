@@ -105,19 +105,23 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     track_point_in_time(hass, data_action, next)
 
 
-    def discover_action(now):
-        try:
-            discover(devices, add_devices, config[CONF_SENSORS])
-        except Exception as exp:
-            _LOGGER.exception("Error occurred while discovering devices: %s",
-                              exp)
-
-        # Schedule again
-        next = next_discover_time()
-        _LOGGER.debug("Scheduling to discover at %s", next)
-        track_point_in_time(hass, discover_action, next)
-
     if config[CONF_DISCOVER]:
+        # Connect to multicast address
+        client = Client(server=('224.0.1.187', 5683))
+
+        def discover_action(now):
+            try:
+                discover(client, devices, add_devices, config[CONF_SENSORS])
+            except Exception as exp:
+                _LOGGER.exception(
+                    "Error occurred while discovering devices: %s",
+                    exp)
+
+            # Schedule again
+            next = next_discover_time()
+            _LOGGER.debug("Scheduling to discover at %s", next)
+            track_point_in_time(hass, discover_action, next)
+
         # Start discovery
         _LOGGER.debug("Discovering new sensors now")
         discover_action(None)
@@ -126,11 +130,9 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     add_devices(sensors)
 
 
-def discover(devices, add_devices, config_sensor):
-    # Connect to multicast address
-    client = Client(server=('224.0.1.187', 5683))
+def discover(client, devices, add_devices, config_sensor):
+    # Send a message to discover new devices
     responses = client.multicast_discover()
-    client.stop()
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
@@ -382,7 +384,6 @@ class Client(object):
         self.protocol.send_message(request)
 
         responses = []
-
         try:
             while True:
                 responses.append(self.queue.get(block=True, timeout=10))
