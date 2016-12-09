@@ -191,12 +191,14 @@ def get_data(device, batch_size, max_data_transfered):
             response = device.client.get('air_quality', payload=payload)
 
             if response is None:
+                device.ack = 0
                 _LOGGER.debug(
                     "Did not receive a response from sensor %s - %s",
                     device.name, device.address)
                 break
 
             if len(response.payload) == 0:
+                device.ack = 0
                 _LOGGER.debug(
                     "Received an empty payload from %s - %s",
                     device.name, device.address)
