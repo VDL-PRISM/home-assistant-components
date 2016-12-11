@@ -33,7 +33,7 @@ CONF_DISCOVER = 'discovery'
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
 CONF_BATCH_SIZE = 'batch_size'
-CONF_MAX_DATA_TRANSFERED = 'max_data_transfered'
+CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
 
 SECONDS_IN_A_YEAR = 31536000
 
@@ -56,7 +56,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_UPDATE_TIME, default=60): cv.positive_int,
     vol.Optional(CONF_DISCOVER_TIME, default=300): cv.positive_int,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
-    vol.Optional(CONF_MAX_DATA_TRANSFERED, default=120): cv.positive_int,
+    vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
@@ -87,7 +87,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             try:
                 get_data(device,
                          config[CONF_BATCH_SIZE],
-                         config[CONF_MAX_DATA_TRANSFERED])
+                         config[CONF_MAX_DATA_TRANSFERRED])
             except Exception as exp:
                 _LOGGER.exception(
                     "Error occurred while getting data from %s: %s",
@@ -173,7 +173,7 @@ def discover(client, devices, add_devices, config_sensor):
 
 
 
-def get_data(device, batch_size, max_data_transfered):
+def get_data(device, batch_size, max_data_transferred):
     _LOGGER.debug("Getting new data from %s (%s) at %s",
                   device.name,
                   device.address,
@@ -260,10 +260,10 @@ def get_data(device, batch_size, max_data_transfered):
 
             # Let's give the system some time to catch up
             # We will try again after CONF_UPDATE_TIME amount of time
-            if total_packets >= max_data_transfered:
+            if total_packets >= max_data_transferred:
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
-                    device.name, device.address, total_packets, max_data_transfered)
+                    device.name, device.address, total_packets, max_data_transferred)
                 time.sleep(5)
                 break
 
