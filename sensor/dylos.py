@@ -124,7 +124,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             track_point_in_time(hass, discover_action, next)
 
         # Start discovery
-        next = datetime.now() + timedelta(seconds=5)
+        next = dt_util.now() + timedelta(seconds=5)
         _LOGGER.debug("Scheduling to discover at %s", next)
         track_point_in_time(hass, discover_action, next)
 
@@ -199,7 +199,7 @@ def get_data(device, batch_size, max_data_transferred):
     _LOGGER.debug("Getting new data from %s (%s) at %s",
                   device.name,
                   device.address,
-                  datetime.now())
+                  dt_util.now())
 
     try:
         data = None
