@@ -124,10 +124,9 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             track_point_in_time(hass, discover_action, next)
 
         # Start discovery
-        _LOGGER.debug("Discovering new sensors in 5 seconds")
-        track_point_in_time(hass,
-                            discover_action,
-                            datetime.now() + timedelta(seconds=5))
+        next = datetime.now() + timedelta(seconds=5)
+        _LOGGER.debug("Scheduling to discover at %s", next)
+        track_point_in_time(hass, discover_action, next)
 
     def stop_dylos(event):
         _LOGGER.info("Shutting down Dylos component")
@@ -148,6 +147,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
 
 def discover(client, devices, add_devices, config_sensor):
+    _LOGGER.debug("Looking for new Dylos devices")
+
     # Send a message to discover new devices
     responses = client.multicast_discover()
 
