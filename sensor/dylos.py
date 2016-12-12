@@ -15,7 +15,7 @@ import msgpack
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_NAME, EVENT_HOMEASSISTANT_STOP
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import track_point_in_time
@@ -104,14 +104,15 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     _LOGGER.debug("Scheduling to get data at %s", next)
     track_point_in_time(hass, data_action, next)
 
+    discover_client = None
 
     if config[CONF_DISCOVER]:
         # Connect to multicast address
-        client = Client(server=('224.0.1.187', 5683))
+        discover_client = Client(server=('224.0.1.187', 5683))
 
         def discover_action(now):
             try:
-                discover(client, devices, add_devices, config[CONF_SENSORS])
+                discover(discover_client, devices, add_devices, config[CONF_SENSORS])
             except Exception as exp:
                 _LOGGER.exception(
                     "Error occurred while discovering devices: %s",
@@ -123,8 +124,24 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             track_point_in_time(hass, discover_action, next)
 
         # Start discovery
-        _LOGGER.debug("Discovering new sensors now")
-        discover_action(None)
+        _LOGGER.debug("Discovering new sensors in 5 seconds")
+        track_point_in_time(hass,
+                            discover_action,
+                            datetime.now() + timedelta(seconds=5))
+
+    def stop_dylos(event):
+        _LOGGER.info("Shutting down Dylos component")
+        if discover_client is not None:
+            discover_client.stop()
+
+        device_list = list(devices.values())
+        for device in device_list:
+            device.client.stop()
+
+        _LOGGER.debug("Done shutting down Dylos component")
+
+    # Register to know when home assistant is stopping
+    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_dylos)
 
     # Finish setting up
     add_devices(sensors)
@@ -136,6 +153,10 @@ def discover(client, devices, add_devices, config_sensor):
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
+        if response is None:
+            # This means that we are trying to exit in the middle of discovery
+            break
+
         # TODO: I should actually parse the response and not just match
         if b'</air_quality>' not in response.payload:
             # It's not a dylos sensor
@@ -260,6 +281,9 @@ def get_data(device, batch_size, max_data_transferred):
 
             # Let's give the system some time to catch up
             # We will try again after CONF_UPDATE_TIME amount of time
+            _LOGGER.debug("%s (total_packets) >= %s (max_data_transferred)",
+                          total_packets,
+                          max_data_transferred)
             if total_packets >= max_data_transferred:
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
@@ -340,6 +364,7 @@ class Client(object):
                              self._wait_response,
                              self._timeout)
         self.queue = Queue()
+        self.running = True
 
     def _wait_response(self, message):
         if message.code != defines.Codes.CONTINUE.number:
@@ -350,7 +375,8 @@ class Client(object):
         self.queue.put(None)
 
     def stop(self):
-        self.protocol.stopped.set()
+        self.running = False
+        self.protocol.stop()
         self.queue.put(None)
 
     def get(self, path, payload=None):  # pragma: no cover
@@ -391,7 +417,7 @@ class Client(object):
         responses = [first_response]
         try:
             # Keep trying to get more responses if they come in
-            while True:
+            while self.running:
                 responses.append(self.queue.get(block=True, timeout=10))
         except Empty:
             pass
