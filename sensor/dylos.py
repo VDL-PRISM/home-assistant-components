@@ -25,7 +25,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.4']
+REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.4b3']
 
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
