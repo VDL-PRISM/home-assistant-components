@@ -35,8 +35,8 @@ CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
 SECONDS_IN_A_YEAR = 31536000
 
 SENSORS = {
-    'dylos': ['temperature', 'humidity', 'large', 'small', 'sequence'],
-    'airu': ['temperature', 'humidity', 'pm1', 'pm10', 'pm25', 'sequence']
+    'dylos': ['humidity', 'large', 'sampletime', 'sequence', 'small', 'temperature']
+    'airu': ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence', 'temperature']
 }
 SENSOR_TYPES = {
     'temperature': '°C',
@@ -46,7 +46,8 @@ SENSOR_TYPES = {
     'pm1': 'ug/m3',
     'pm10': 'ug/m3',
     'pm25': 'ug/m3',
-    'sequence': 'sequence'
+    'sequence': 'sequence',
+    'sampletime': 's'
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -176,6 +177,7 @@ def discover(client, devices, add_devices):
 
         devices[address] = AirQualityDevice(address,
                                             name,
+                                            sensor_type,
                                             callbacks)
         add_devices(sensors)
 
@@ -225,8 +227,7 @@ def get_data(device, batch_size, max_data_transferred):
             device.ack = len(data)
             total_packets += device.ack
 
-            keys = ['humidity', 'large', 'sampletime',
-                    'sequence', 'small', 'temperature']
+            keys = SENSORS[device.sensor_type]
             now = time.time()
 
             # For each new piece of data, notify everyone that has
@@ -286,9 +287,10 @@ def get_data(device, batch_size, max_data_transferred):
 
 
 class AirQualityDevice(object):
-    def __init__(self, address, name, callbacks):
+    def __init__(self, address, name, sensor_type, callbacks):
         self.address = address
         self.name = name
+        self.sensor_type = sensor_type
         self.callbacks = callbacks
         self.ack = 0
 
