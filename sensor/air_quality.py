@@ -27,9 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 DEPENDENCIES = []
 REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.5']
 
-CONF_MONITORS = 'monitors'
-CONF_SENSORS = 'sensors'
-CONF_DISCOVER = 'discovery'
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
 CONF_BATCH_SIZE = 'batch_size'
@@ -37,22 +34,22 @@ CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
 
 SECONDS_IN_A_YEAR = 31536000
 
-DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small', 'sequence']
+SENSORS = {
+    'dylos': ['temperature', 'humidity', 'large', 'small', 'sequence'],
+    'airu': ['temperature', 'humidity', 'pm1', 'pm10', 'pm25', 'sequence']
+}
 SENSOR_TYPES = {
     'temperature': '°C',
     'humidity': '%',
     'large': 'pm',
     'small': 'pm',
+    'pm1': 'ug/m3',
+    'pm10': 'ug/m3',
+    'pm25': 'ug/m3',
     'sequence': 'sequence'
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_MONITORS, default=[]): [{
-        vol.Required(CONF_NAME): cv.string,
-        vol.Required(CONF_HOST): cv.string
-    }],
-    vol.Optional(CONF_DISCOVER, default=True): cv.boolean,
-    vol.Optional(CONF_SENSORS, default=DEFAULT_SENSORS): cv.ensure_list,
     vol.Optional(CONF_UPDATE_TIME, default=60): cv.positive_int,
     vol.Optional(CONF_DISCOVER_TIME, default=300): cv.positive_int,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
@@ -65,21 +62,6 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     def next_discover_time():
         return dt_util.now() + timedelta(seconds=config[CONF_DISCOVER_TIME])
-
-    devices = {}
-    sensors = []
-
-    for monitor in config[CONF_MONITORS]:
-        callbacks = []
-
-        for sensor in config[CONF_SENSORS]:
-            dylos_sensor = DylosSensor(monitor[CONF_NAME], sensor)
-            sensors.append(dylos_sensor)
-            callbacks.append(dylos_sensor.update)
-
-        devices[monitor[CONF_HOST]] = DylosDevice(monitor[CONF_HOST],
-                                                  monitor[CONF_NAME],
-                                                  callbacks)
 
     def data_action(now):
         device_list = list(devices.values())
@@ -104,32 +86,29 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     _LOGGER.debug("Scheduling to get data at %s", next)
     track_point_in_time(hass, data_action, next)
 
-    discover_client = None
+    # Connect to multicast address
+    discover_client = Client(server=('224.0.1.187', 5683))
 
-    if config[CONF_DISCOVER]:
-        # Connect to multicast address
-        discover_client = Client(server=('224.0.1.187', 5683))
+    def discover_action(now):
+        try:
+            discover(discover_client, devices, add_devices)
+        except Exception as exp:
+            _LOGGER.exception(
+                "Error occurred while discovering devices: %s",
+                exp)
 
-        def discover_action(now):
-            try:
-                discover(discover_client, devices, add_devices, config[CONF_SENSORS])
-            except Exception as exp:
-                _LOGGER.exception(
-                    "Error occurred while discovering devices: %s",
-                    exp)
-
-            # Schedule again
-            next = next_discover_time()
-            _LOGGER.debug("Scheduling to discover at %s", next)
-            track_point_in_time(hass, discover_action, next)
-
-        # Start discovery
-        next = dt_util.now() + timedelta(seconds=5)
+        # Schedule again
+        next = next_discover_time()
         _LOGGER.debug("Scheduling to discover at %s", next)
         track_point_in_time(hass, discover_action, next)
 
-    def stop_dylos(event):
-        _LOGGER.info("Shutting down Dylos component")
+    # Start discovery
+    next = dt_util.now() + timedelta(seconds=5)
+    _LOGGER.debug("Scheduling to discover at %s", next)
+    track_point_in_time(hass, discover_action, next)
+
+    def stop(event):
+        _LOGGER.info("Shutting down Air Quality component")
         if discover_client is not None:
             discover_client.stop()
 
@@ -137,17 +116,14 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         for device in device_list:
             device.client.stop()
 
-        _LOGGER.debug("Done shutting down Dylos component")
+        _LOGGER.debug("Done shutting down Air Quality component")
 
     # Register to know when home assistant is stopping
-    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_dylos)
-
-    # Finish setting up
-    add_devices(sensors)
+    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(client, devices, add_devices, config_sensor):
-    _LOGGER.debug("Looking for new Dylos devices")
+def discover(client, devices, add_devices):
+    _LOGGER.debug("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
     responses = client.multicast_discover()
@@ -160,8 +136,16 @@ def discover(client, devices, add_devices, config_sensor):
 
         # TODO: I should actually parse the response and not just match
         if b'</air_quality>' not in response.payload:
-            # It's not a dylos sensor
+            # It's not a sensor we care about
             continue
+
+        # Get the sensor type
+        m = re.search("</type=(.*?)>", response.payload.decode('utf8'))
+        if m is None:
+            _LOGGER.warning("Couldn't find type in response: %s", response)
+            continue
+
+        sensor_type = m.group(1)
 
         # Get the hostname
         m = re.search("</name=(.*?)>", response.payload.decode('utf8'))
@@ -174,7 +158,7 @@ def discover(client, devices, add_devices, config_sensor):
         _LOGGER.debug("Found device: %s - %s", address, name)
 
         if address in devices:
-            _LOGGER.debug("Dylos device has already been discovered")
+            _LOGGER.debug("Device has already been discovered")
             continue
 
         # Add the new device to home assistant
@@ -182,15 +166,15 @@ def discover(client, devices, add_devices, config_sensor):
         callbacks = []
 
         _LOGGER.debug("Adding %s to home assistant", address)
-        for sensor in config_sensor:
-            dylos_sensor = DylosSensor(name, sensor)
-            sensors.append(dylos_sensor)
-            callbacks.append(dylos_sensor.update)
+        for sensor in SENSORS[sensor_type]:
+            air_quality_sensor = AirQualitySensor(name, sensor)
+            sensors.append(air_quality_sensor)
+            callbacks.append(air_quality_sensor.update)
 
 
-        devices[address] = DylosDevice(address,
-                                       name,
-                                       callbacks)
+        devices[address] = AirQualityDevice(address,
+                                            name,
+                                            callbacks)
         add_devices(sensors)
 
 
@@ -299,7 +283,7 @@ def get_data(device, batch_size, max_data_transferred):
             data, device.name, device.address)
 
 
-class DylosDevice(object):
+class AirQualityDevice(object):
     def __init__(self, address, name, callbacks):
         self.address = address
         self.name = name
@@ -309,7 +293,7 @@ class DylosDevice(object):
         self.client = Client(server=(address, 5683))
 
 
-class DylosSensor(Entity):
+class AirQualitySensor(Entity):
     def __init__(self, monitor_name, sensor_name):
         self._monitor_name = monitor_name
         self._name = sensor_name
