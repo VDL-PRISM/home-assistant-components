@@ -35,7 +35,7 @@ CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
 SECONDS_IN_A_YEAR = 31536000
 
 SENSORS = {
-    'dylos': ['humidity', 'large', 'sampletime', 'sequence', 'small', 'temperature']
+    'dylos': ['humidity', 'large', 'sampletime', 'sequence', 'small', 'temperature'],
     'airu': ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence', 'temperature']
 }
 SENSOR_TYPES = {
