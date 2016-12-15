@@ -33,7 +33,7 @@ DEFAULT_DATABASE = 'home_assistant'
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = False
 DEFAULT_BATCH_TIME = 0
-DEFAULT_CHUNK_SIZE = 1000
+DEFAULT_CHUNK_SIZE = 500
 
 REQUIREMENTS = ['influxdb==3.0.0', 'python-persistent-queue==1.3.0']
 
@@ -85,6 +85,8 @@ def setup(hass, config):
     batch_time = conf[CONF_BATCH_TIME]
     chunk_size = conf[CONF_CHUNK_SIZE]
 
+    template.attach(hass, value_template)
+
     influx = InfluxDBClient(host=conf[CONF_HOST],
                             port=conf[CONF_PORT],
                             username=conf[CONF_USERNAME],
@@ -118,16 +120,10 @@ def setup(hass, config):
                 _LOGGER.debug("Since batch_time == 0, writing data")
                 json_body = render(event)
                 write_data(influx, json_body)
-            except json.decoder.JSONDecodeError as e:
-                # Something is wrong with the template. This error can't be
-                # fixed without restarting HA. Remove handler so we don't keep trying.
+            except ValueError as e:
                 _LOGGER.error("Something is wrong with the provided template: %s", e)
-                hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
                 return
         else:
-            # Store event to be uploaded later
-            _LOGGER.debug("Saving event for later")
-
             # Convert object to pickle-able. Since State.attributes uses
             # MappingProxyType, it is not pickle-able
             if event.data['new_state']:
@@ -136,15 +132,16 @@ def setup(hass, config):
             if event.data['old_state']:
                 event.data['old_state'].attributes = dict(event.data['old_state'].attributes)
 
+            # Store event to be uploaded later
             events.push(event)
+            _LOGGER.debug("Saving event for later (%s)", len(events))
 
     hass.bus.listen(EVENT_STATE_CHANGED, influx_event_listener)
 
     if batch_time != 0:
         # Set up task to upload batch data
         _LOGGER.debug("Starting task to upload batch data")
-        write_batch_data(hass, events, influx, render, batch_time, chunk_size,
-                         influx_event_listener)
+        write_batch_data(hass, events, influx, render, batch_time, chunk_size)
 
     return True
 
@@ -168,7 +165,7 @@ def write_data(influx, json_body):
     return True
 
 
-def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event_listener):
+def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
     def next_time():
         return dt_util.now() + timedelta(seconds=batch_time)
 
@@ -181,19 +178,16 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
                 _LOGGER.debug("Nothing to upload")
                 break
 
-            size = min(len(events), chunk_size)
-            events_chunk = events.peek(size)
-            _LOGGER.debug("Uploading chunk of size %s", size)
+            events_chunk = events.peek(chunk_size)
+            size = len(events_chunk)
+            _LOGGER.debug("Uploading chunk of size %s (%s)", size, len(events))
 
             try:
                 # Render and write events
                 data = itertools.chain(*[render(event) for event in events_chunk])
                 result = write_data(influx, list(data))
-            except json.decoder.JSONDecodeError as e:
-                # Something is wrong with the template. This error can't be
-                # fixed without restarting HA. Remove handler so we don't keep trying.
+            except ValueError as e:
                 _LOGGER.error("Something is wrong with the provided template: %s", e)
-                hass.bus.listen(EVENT_STATE_CHANGED, event_listener)
                 return
 
             if result:
@@ -202,8 +196,8 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size, event
                 events.delete(size)
                 events.flush()
 
-                if size <= chunk_size:
-                    _LOGGER.debug("Finished uploading data because size <= than"
+                if size < chunk_size:
+                    _LOGGER.debug("Finished uploading data because size <"
                                   " chunk_size: %s < %s (%s)", size,
                                   chunk_size, len(events))
                     break
@@ -247,13 +241,13 @@ def get_json_body(event, hass, tags, value_template):
             }
         ]
     else:
-        json_body = template.render(hass, value_template, event=event,
-                                    measurement=measurement, state=state,
-                                    state_value=_state)
-
+        json_body = value_template.render(event=event,
+                                          measurement=measurement,
+                                          state=state,
+                                          state_value=_state)
         try:
             json_body = json.loads(json_body)
-        except json.decoder.JSONDecodeError as e:
+        except ValueError as e:
             _LOGGER.error('%s does not result in valid json: %s: %s',
                           CONF_VALUE_TEMPLATE, e, json_body)
             raise e

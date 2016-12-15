@@ -15,7 +15,7 @@ import msgpack
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_NAME, EVENT_HOMEASSISTANT_STOP
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.event import track_point_in_time
@@ -25,7 +25,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.2']
+REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.5']
 
 CONF_MONITORS = 'monitors'
 CONF_SENSORS = 'sensors'
@@ -33,7 +33,9 @@ CONF_DISCOVER = 'discovery'
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
 CONF_BATCH_SIZE = 'batch_size'
-CONF_MAX_DATA_TRANSFERED = 'max_data_transfered'
+CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
+
+SECONDS_IN_A_YEAR = 31536000
 
 DEFAULT_SENSORS = ['temperature', 'humidity', 'large', 'small', 'sequence']
 SENSOR_TYPES = {
@@ -54,7 +56,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_UPDATE_TIME, default=60): cv.positive_int,
     vol.Optional(CONF_DISCOVER_TIME, default=300): cv.positive_int,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
-    vol.Optional(CONF_MAX_DATA_TRANSFERED, default=120): cv.positive_int,
+    vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
@@ -85,11 +87,12 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             try:
                 get_data(device,
                          config[CONF_BATCH_SIZE],
-                         config[CONF_MAX_DATA_TRANSFERED])
+                         config[CONF_MAX_DATA_TRANSFERRED])
             except Exception as exp:
-                _LOGGER.error("Error occurred while getting data from %s: %s",
-                              device,
-                              exp)
+                _LOGGER.exception(
+                    "Error occurred while getting data from %s: %s",
+                    device,
+                    exp)
 
         # Schedule again
         next = next_data_time()
@@ -101,35 +104,60 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     _LOGGER.debug("Scheduling to get data at %s", next)
     track_point_in_time(hass, data_action, next)
 
+    discover_client = None
 
-    def discover_action(now):
-        try:
-            discover(devices, add_devices, config[CONF_SENSORS])
-        except Exception as exp:
-            _LOGGER.error("Error occurred while discovering devices: %s", exp)
+    if config[CONF_DISCOVER]:
+        # Connect to multicast address
+        discover_client = Client(server=('224.0.1.187', 5683))
 
-        # Schedule again
-        next = next_discover_time()
+        def discover_action(now):
+            try:
+                discover(discover_client, devices, add_devices, config[CONF_SENSORS])
+            except Exception as exp:
+                _LOGGER.exception(
+                    "Error occurred while discovering devices: %s",
+                    exp)
+
+            # Schedule again
+            next = next_discover_time()
+            _LOGGER.debug("Scheduling to discover at %s", next)
+            track_point_in_time(hass, discover_action, next)
+
+        # Start discovery
+        next = dt_util.now() + timedelta(seconds=5)
         _LOGGER.debug("Scheduling to discover at %s", next)
         track_point_in_time(hass, discover_action, next)
 
-    if config[CONF_DISCOVER]:
-        # Start discovery
-        _LOGGER.debug("Discovering new sensors now")
-        discover_action(None)
+    def stop_dylos(event):
+        _LOGGER.info("Shutting down Dylos component")
+        if discover_client is not None:
+            discover_client.stop()
+
+        device_list = list(devices.values())
+        for device in device_list:
+            device.client.stop()
+
+        _LOGGER.debug("Done shutting down Dylos component")
+
+    # Register to know when home assistant is stopping
+    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop_dylos)
 
     # Finish setting up
     add_devices(sensors)
 
 
-def discover(devices, add_devices, config_sensor):
-    # Connect to multicast address
-    client = Client(server=('224.0.1.187', 5683))
+def discover(client, devices, add_devices, config_sensor):
+    _LOGGER.debug("Looking for new Dylos devices")
 
+    # Send a message to discover new devices
     responses = client.multicast_discover()
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
+        if response is None:
+            # This means that we are trying to exit in the middle of discovery
+            break
+
         # TODO: I should actually parse the response and not just match
         if b'</air_quality>' not in response.payload:
             # It's not a dylos sensor
@@ -167,11 +195,11 @@ def discover(devices, add_devices, config_sensor):
 
 
 
-def get_data(device, batch_size, max_data_transfered):
+def get_data(device, batch_size, max_data_transferred):
     _LOGGER.debug("Getting new data from %s (%s) at %s",
                   device.name,
                   device.address,
-                  datetime.now())
+                  dt_util.now())
 
     try:
         data = None
@@ -187,12 +215,14 @@ def get_data(device, batch_size, max_data_transfered):
             response = device.client.get('air_quality', payload=payload)
 
             if response is None:
+                device.ack = 0
                 _LOGGER.debug(
                     "Did not receive a response from sensor %s - %s",
                     device.name, device.address)
                 break
 
             if len(response.payload) == 0:
+                device.ack = 0
                 _LOGGER.debug(
                     "Received an empty payload from %s - %s",
                     device.name, device.address)
@@ -211,6 +241,7 @@ def get_data(device, batch_size, max_data_transfered):
 
             keys = ['humidity', 'large', 'sampletime',
                     'sequence', 'small', 'temperature']
+            now = time.time()
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -224,6 +255,13 @@ def get_data(device, batch_size, max_data_transfered):
 
                 # Transform data into a dict
                 d = dict(zip(keys, d))
+
+                # Make sure the timestamp makes sense
+                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
+                    _LOGGER.warning(
+                        "Sample time is too far off: %s. Ignoring data: %s",
+                        d['sampletime'],
+                        d)
 
                 _LOGGER.debug("Calling callbacks for %s - %s on %s",
                               device.name,
@@ -244,10 +282,13 @@ def get_data(device, batch_size, max_data_transfered):
 
             # Let's give the system some time to catch up
             # We will try again after CONF_UPDATE_TIME amount of time
-            if total_packets >= max_data_transfered:
+            _LOGGER.debug("%s (total_packets) >= %s (max_data_transferred)",
+                          total_packets,
+                          max_data_transferred)
+            if total_packets >= max_data_transferred:
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
-                    device.name, device.address, total_packets, max_data_transfered)
+                    device.name, device.address, total_packets, max_data_transferred)
                 time.sleep(5)
                 break
 
@@ -324,6 +365,7 @@ class Client(object):
                              self._wait_response,
                              self._timeout)
         self.queue = Queue()
+        self.running = True
 
     def _wait_response(self, message):
         if message.code != defines.Codes.CONTINUE.number:
@@ -334,14 +376,9 @@ class Client(object):
         self.queue.put(None)
 
     def stop(self):
-        self.protocol.stopped.set()
+        self.running = False
+        self.protocol.stop()
         self.queue.put(None)
-
-    def _thread_body(self, request, callback):
-        self.protocol.send_message(request)
-        while not self.protocol.stopped.isSet():
-            response = self.queue.get(block=True)
-            callback(response)
 
     def get(self, path, payload=None):  # pragma: no cover
         request = Request()
@@ -349,6 +386,16 @@ class Client(object):
         request.code = defines.Codes.GET.number
         request.uri_path = path
         request.payload = payload
+
+        # Clear out queue before sending a request. It is possible that an old
+        # response was received between requests. We don't want the requests
+        # and responses to be mismatched. I expect the protocol to take care of
+        # that, but I don't have confidence in the CoAP library.
+        try:
+            while True:
+                self.queue.get_nowait()
+        except Empty:
+            pass
 
         self.protocol.send_message(request)
         response = self.queue.get(block=True)
@@ -362,11 +409,16 @@ class Client(object):
         request.uri_path = defines.DISCOVERY_URL
 
         self.protocol.send_message(request)
+        first_response = self.queue.get(block=True)
 
-        responses = []
+        if first_response is None:
+            # The message timed out
+            return []
 
+        responses = [first_response]
         try:
-            while True:
+            # Keep trying to get more responses if they come in
+            while self.running:
                 responses.append(self.queue.get(block=True, timeout=10))
         except Empty:
             pass
