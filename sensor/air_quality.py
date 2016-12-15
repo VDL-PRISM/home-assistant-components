@@ -63,6 +63,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     def next_discover_time():
         return dt_util.now() + timedelta(seconds=config[CONF_DISCOVER_TIME])
 
+    devices = {}
+
     def data_action(now):
         device_list = list(devices.values())
         for device in device_list:
