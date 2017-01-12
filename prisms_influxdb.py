@@ -220,7 +220,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 break
 
         if RUNNING:
-            # Flush all the events that were deleted
+            _LOGGER.debug("Flushing all events that were deleted")
             events.flush()
 
             # Schedule again
