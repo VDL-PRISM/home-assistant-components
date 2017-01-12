@@ -197,7 +197,6 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 # Chunk got saved so remove events
                 _LOGGER.debug("Data was uploaded successfully so deleting data")
                 events.delete(size)
-                events.flush()
 
                 if size < chunk_size:
                     _LOGGER.debug("Finished uploading data because size <"
@@ -209,6 +208,9 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 # Unable to write data so give up for now
                 _LOGGER.debug("Error while trying to upload data. Trying again later")
                 break
+
+        # Flush all the events that were deleted
+        events.flush()
 
         # Schedule again
         next = next_time()
