@@ -152,14 +152,17 @@ def write_data(influx, json_body):
     try:
         influx.write_points(json_body)
     except requests.exceptions.RequestException as e:
-        _LOGGER.error('Unable to connect to database: %s', e)
+        _LOGGER.exception('Unable to connect to database: %s', e)
         return False
     except exceptions.InfluxDBClientError as e:
         error = json.loads(e.content)['error']
-        _LOGGER.error('Error saving event "%s": %s', json_body, error)
+        _LOGGER.exception('Error saving event "%s": %s', json_body, error)
         return False
     except exceptions.InfluxDBServerError as e:
-        _LOGGER.error('Error saving event "%s" to InfluxDB: %s', json_body, e)
+        _LOGGER.exception('Error saving event "%s" to InfluxDB: %s', json_body, e)
+        return False
+    except Exception:  # Catch anything else
+        _LOGGER.exception("An unknown exception happened while uploading data")
         return False
 
     return True
@@ -208,10 +211,14 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 break
 
         # Schedule again
-        track_point_in_time(hass, action, next_time())
+        next = next_time()
+        _LOGGER.debug("Scheduling to upload data at %s", next)
+        track_point_in_time(hass, action, next)
 
     # Start the action
-    track_point_in_time(hass, action, next_time())
+    next = next_time()
+    _LOGGER.debug("Scheduling to upload data at %s", next)
+    track_point_in_time(hass, action, next)
 
 
 def get_json_body(event, hass, tags, value_template):
