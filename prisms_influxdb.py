@@ -15,7 +15,8 @@ import requests
 import voluptuous as vol
 
 from homeassistant.const import (EVENT_STATE_CHANGED, STATE_UNAVAILABLE,
-                                 STATE_UNKNOWN, CONF_VALUE_TEMPLATE)
+                                 STATE_UNKNOWN, CONF_VALUE_TEMPLATE,
+                                 EVENT_HOMEASSISTANT_STOP)
 from homeassistant.helpers import state as state_helper
 from homeassistant.helpers import template
 import homeassistant.helpers.config_validation as cv
@@ -71,6 +72,7 @@ CONFIG_SCHEMA = vol.Schema({
     })
 }, extra=vol.ALLOW_EXTRA)
 
+RUNNING = True
 
 # pylint: disable=too-many-locals
 def setup(hass, config):
@@ -143,6 +145,14 @@ def setup(hass, config):
         _LOGGER.debug("Starting task to upload batch data")
         write_batch_data(hass, events, influx, render, batch_time, chunk_size)
 
+    def stop(event):
+        global RUNNING
+        _LOGGER.info("Shutting down PRISMS InfluxDB component")
+        RUNNING = False
+
+    # Register to know when home assistant is stopping
+    hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
+
     return True
 
 
@@ -173,7 +183,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
         return dt_util.now() + timedelta(seconds=batch_time)
 
     def action(now):
-        while True:
+        while RUNNING:
             _LOGGER.debug("Trying to upload data")
 
             if len(events) == 0:
@@ -209,13 +219,14 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
                 _LOGGER.debug("Error while trying to upload data. Trying again later")
                 break
 
-        # Flush all the events that were deleted
-        events.flush()
+        if RUNNING:
+            # Flush all the events that were deleted
+            events.flush()
 
-        # Schedule again
-        next = next_time()
-        _LOGGER.debug("Scheduling to upload data at %s", next)
-        track_point_in_time(hass, action, next)
+            # Schedule again
+            next = next_time()
+            _LOGGER.debug("Scheduling to upload data at %s", next)
+            track_point_in_time(hass, action, next)
 
     # Start the action
     next = next_time()
