@@ -29,6 +29,7 @@ REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.5']
 
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
+CONF_DEVICE_CLEANUP_TIME = 'device_cleanup_time'
 CONF_BATCH_SIZE = 'batch_size'
 CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
 
@@ -51,18 +52,22 @@ SENSOR_TYPES = {
 }
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Optional(CONF_UPDATE_TIME, default=60): cv.positive_int,
-    vol.Optional(CONF_DISCOVER_TIME, default=300): cv.positive_int,
+    vol.Optional(CONF_UPDATE_TIME,
+                 default=timedelta(seconds=60)): cv.time_period,
+    vol.Optional(CONF_DISCOVER_TIME,
+                 default=timedelta(minutes=5)): cv.time_period,
+    vol.Optional(CONF_DEVICE_CLEANUP_TIME,
+                 default=timedelta(days=1)): cv.time_period,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
     def next_data_time():
-        return dt_util.now() + timedelta(seconds=config[CONF_UPDATE_TIME])
+        return dt_util.now() + config[CONF_UPDATE_TIME]
 
     def next_discover_time():
-        return dt_util.now() + timedelta(seconds=config[CONF_DISCOVER_TIME])
+        return dt_util.now() + config[CONF_DISCOVER_TIME]
 
     devices = {}
 
@@ -94,7 +99,10 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     def discover_action(now):
         try:
-            discover(discover_client, devices, add_devices)
+            discover(discover_client,
+                     devices,
+                     add_devices,
+                     config[CONF_DEVICE_CLEANUP_TIME])
         except Exception as exp:
             _LOGGER.exception(
                 "Error occurred while discovering devices: %s",
@@ -125,11 +133,12 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(client, devices, add_devices):
+def discover(client, devices, add_devices, device_cleanup_time):
     _LOGGER.debug("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
     responses = client.multicast_discover()
+    now = dt_util.now()
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
     for response in responses:
@@ -162,6 +171,7 @@ def discover(client, devices, add_devices):
 
         if address in devices:
             _LOGGER.debug("Device has already been discovered")
+            devices[address].last_discovered = now
             continue
 
         # Add the new device to home assistant
@@ -181,6 +191,13 @@ def discover(client, devices, add_devices):
                                             callbacks)
         add_devices(sensors)
 
+    # Remove any devices that haven't been discovered in awhile
+    for device in list(devices.values()):
+        if now - device.last_discovered > device_cleanup_time:
+            _LOGGER.info("Removing discovered device %s - %s: Hasn't been "
+                         "seen since %s", device.name, device.address,
+                         device.last_discovered)
+            del devices[device.address]
 
 
 def get_data(device, batch_size, max_data_transferred):
@@ -246,7 +263,7 @@ def get_data(device, batch_size, max_data_transferred):
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
-                        "Sample time is too far off: %s. Ignoring data: %s",
+                        "Sample time is too far off: %s. Data: %s",
                         d['sampletime'],
                         d)
 
@@ -293,6 +310,7 @@ class AirQualityDevice(object):
         self.sensor_type = sensor_type
         self.callbacks = callbacks
         self.ack = 0
+        self.last_discovered = dt_util.now()
 
         self.client = Client(server=(address, 5683))
 
