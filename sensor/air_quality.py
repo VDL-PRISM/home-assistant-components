@@ -70,9 +70,22 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         return dt_util.now() + config[CONF_DISCOVER_TIME]
 
     devices = {}
+    device_cleanup_time = config[CONF_DEVICE_CLEANUP_TIME]
 
     def data_action(now):
+        now = dt_util.now()
+        def active(device):
+            if now - device.last_discovered > device_cleanup_time:
+                _LOGGER.info("Skipping device %s - %s: Hasn't been "
+                             "seen since %s", device.name, device.address,
+                             device.last_discovered)
+                return False
+            else:
+                return True
+
         device_list = list(devices.values())
+        device_list = [device for device in device_list if active(device)]
+
         for device in device_list:
             try:
                 get_data(device,
@@ -101,8 +114,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         try:
             discover(discover_client,
                      devices,
-                     add_devices,
-                     config[CONF_DEVICE_CLEANUP_TIME])
+                     add_devices)
         except Exception as exp:
             _LOGGER.exception(
                 "Error occurred while discovering devices: %s",
@@ -133,7 +145,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(client, devices, add_devices, device_cleanup_time):
+def discover(client, devices, add_devices):
     _LOGGER.debug("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
@@ -190,14 +202,6 @@ def discover(client, devices, add_devices, device_cleanup_time):
                                             sensor_type,
                                             callbacks)
         add_devices(sensors)
-
-    # Remove any devices that haven't been discovered in awhile
-    for device in list(devices.values()):
-        if now - device.last_discovered > device_cleanup_time:
-            _LOGGER.info("Removing discovered device %s - %s: Hasn't been "
-                         "seen since %s", device.name, device.address,
-                         device.last_discovered)
-            del devices[device.address]
 
 
 def get_data(device, batch_size, max_data_transferred):
