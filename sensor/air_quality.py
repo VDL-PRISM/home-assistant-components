@@ -69,6 +69,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     def next_discover_time():
         return dt_util.now() + config[CONF_DISCOVER_TIME]
 
+    # Device name => device
     devices = {}
     device_cleanup_time = config[CONF_DEVICE_CLEANUP_TIME]
 
@@ -179,28 +180,33 @@ def discover(client, devices, add_devices):
 
         name = m.group(1)
         address = address = response.source[0]
-        _LOGGER.debug("Found device: %s - %s", address, name)
+        _LOGGER.debug("Found device: %s - %s", name, address)
 
-        if address in devices:
+        if name in devices:
             _LOGGER.debug("Device has already been discovered")
-            devices[address].last_discovered = now
+            devices[name].last_discovered = now
+
+            if devices[name].address != address:
+                _LOGGER.warning("Address of device has changed!")
+                devices[name].address = address
+
             continue
 
         # Add the new device to home assistant
         sensors = []
         callbacks = []
 
-        _LOGGER.debug("Adding %s to home assistant", address)
+        _LOGGER.debug("Adding %s (%s) to home assistant", name, address)
         for sensor in SENSORS[sensor_type]:
             air_quality_sensor = AirQualitySensor(name, sensor)
             sensors.append(air_quality_sensor)
             callbacks.append(air_quality_sensor.update)
 
 
-        devices[address] = AirQualityDevice(address,
-                                            name,
-                                            sensor_type,
-                                            callbacks)
+        devices[name] = AirQualityDevice(address,
+                                         name,
+                                         sensor_type,
+                                         callbacks)
         add_devices(sensors)
 
 
@@ -309,14 +315,31 @@ def get_data(device, batch_size, max_data_transferred):
 
 class AirQualityDevice(object):
     def __init__(self, address, name, sensor_type, callbacks):
-        self.address = address
+        self._address = address
         self.name = name
         self.sensor_type = sensor_type
         self.callbacks = callbacks
+
         self.ack = 0
         self.last_discovered = dt_util.now()
-
         self.client = Client(server=(address, 5683))
+
+    @property
+    def address(self):
+        return self._address
+
+    @address.setter
+    def address(self, new_address):
+        _LOGGER.debug("Updating address from {} to {}",
+                      self._address,
+                      new_address)
+        self._address = new_address
+
+        _LOGGER.debug("Stopping client of old address")
+        self.client.stop()
+
+        _LOGGER.debug("Creating a new client with new address")
+        self.client = Client(server=(new_address, 5683))
 
 
 class AirQualitySensor(Entity):
