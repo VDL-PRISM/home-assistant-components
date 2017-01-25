@@ -179,7 +179,7 @@ def discover(client, devices, add_devices):
             continue
 
         name = m.group(1)
-        address = address = response.source[0]
+        address = response.source[0]
         _LOGGER.debug("Found device: %s - %s", name, address)
 
         if name in devices:
