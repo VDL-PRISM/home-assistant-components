@@ -283,7 +283,7 @@ def get_data(device, batch_size, max_data_transferred):
                               d)
                 for cb in device.callbacks:
                     cb(d)
-                    time.sleep(.01)
+                    time.sleep(.05)
 
             # If we get all of the data we ask for, then let's request more
             # right away
@@ -291,7 +291,7 @@ def get_data(device, batch_size, max_data_transferred):
                 _LOGGER.debug(
                     "%s - %s: Stopping because acks (%s) != size (%s)",
                     device.name, device.address, device.ack, batch_size)
-                time.sleep(.01)
+                time.sleep(1)
                 break
 
             # Let's give the system some time to catch up
