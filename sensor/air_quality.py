@@ -52,7 +52,7 @@ SENSOR_TYPES = {
     'sampletime': 's'
 }
 
-RUNNING = False
+RUNNING = True
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_UPDATE_TIME,
@@ -139,6 +139,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     track_point_in_time(hass, discover_action, next)
 
     def stop(event):
+        global RUNNING
+
         RUNNING = False
 
         _LOGGER.info("Shutting down Air Quality component")
@@ -164,7 +166,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
     # Discover clients that have been provided
     for device in provided_devices:
-        _LOGGER.debug("Discovering %s", devices)
+        _LOGGER.debug("Discovering %s", device)
         client = Client(server=(device, 5683))
         response = client.discover()
         if response is not None:
@@ -172,6 +174,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
         client.stop()
 
         if not RUNNING:
+            _LOGGER.debug("Stop discovering new devices")
             return
 
     now = dt_util.now()
