@@ -32,6 +32,7 @@ CONF_DISCOVER_TIME = 'discover_time'
 CONF_DEVICE_CLEANUP_TIME = 'device_cleanup_time'
 CONF_BATCH_SIZE = 'batch_size'
 CONF_MAX_DATA_TRANSFERRED = 'max_data_transferred'
+CONF_MONITORS = 'monitors'
 
 SECONDS_IN_A_YEAR = 31536000
 
@@ -51,6 +52,8 @@ SENSOR_TYPES = {
     'sampletime': 's'
 }
 
+RUNNING = False
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_UPDATE_TIME,
                  default=timedelta(seconds=60)): cv.time_period,
@@ -60,6 +63,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
                  default=timedelta(days=1)): cv.time_period,
     vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
+    vol.Optional(CONF_MONITORS, default=[]):
+        vol.All(cv.ensure_list, [cv.string]),
 })
 
 def setup_platform(hass, config, add_devices, discovery_info=None):
@@ -110,11 +115,13 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
     # Connect to multicast address
     discover_client = Client(server=('224.0.1.187', 5683))
+    provided_devices = config[CONF_MONITORS]
 
     def discover_action(now):
         try:
             discover(discover_client,
                      devices,
+                     provided_devices,
                      add_devices)
         except Exception as exp:
             _LOGGER.exception(
@@ -132,6 +139,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     track_point_in_time(hass, discover_action, next)
 
     def stop(event):
+        RUNNING = False
+
         _LOGGER.info("Shutting down Air Quality component")
         if discover_client is not None:
             discover_client.stop()
@@ -146,11 +155,25 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(client, devices, add_devices):
+def discover(discover_client, devices, provided_devices, add_devices):
     _LOGGER.debug("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
-    responses = client.multicast_discover()
+    responses = discover_client.multicast_discover()
+    _LOGGER.debug("Finished multicast discovering devices (%s)", len(responses))
+
+    # Discover clients that have been provided
+    for device in provided_devices:
+        _LOGGER.debug("Discovering %s", devices)
+        client = Client(server=(device, 5683))
+        response = client.discover()
+        if response is not None:
+            responses.append(response)
+        client.stop()
+
+        if not RUNNING:
+            return
+
     now = dt_util.now()
 
     _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
@@ -203,11 +226,12 @@ def discover(client, devices, add_devices):
             callbacks.append(air_quality_sensor.update)
 
 
-        devices[name] = AirQualityDevice(address,
-                                         name,
-                                         sensor_type,
-                                         callbacks)
-        add_devices(sensors)
+        if RUNNING:
+            devices[name] = AirQualityDevice(address,
+                                             name,
+                                             sensor_type,
+                                             callbacks)
+            add_devices(sensors)
 
 
 def get_data(device, batch_size, max_data_transferred):
@@ -434,6 +458,22 @@ class Client(object):
         self.protocol.send_message(request)
         response = self.queue.get(block=True)
         _LOGGER.debug("%s: Got response to GET request with MID: %s", self.server[0], request.mid)
+        return response
+
+    def discover(self):
+        request = Request()
+        request.destination = self.server
+        request.code = defines.Codes.GET.number
+        request.uri_path = defines.DISCOVERY_URL
+
+        try:
+            while True:
+                self.queue.get_nowait()
+        except Empty:
+            pass
+
+        self.protocol.send_message(request)
+        response = self.queue.get(block=True)
         return response
 
     def multicast_discover(self): # pragma: no cover
