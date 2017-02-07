@@ -303,7 +303,7 @@ def get_data(device, batch_size, max_data_transferred):
                 _LOGGER.debug(
                     "%s - %s: Stopping because total_packets (%s) > %s",
                     device.name, device.address, total_packets, max_data_transferred)
-                time.sleep(5)
+                time.sleep(1)
                 break
 
     except Exception:
@@ -311,6 +311,7 @@ def get_data(device, batch_size, max_data_transferred):
         _LOGGER.exception(
             "Unable to receive data or unpack data: %s (%s - %s)",
             data, device.name, device.address)
+        time.sleep(1)
 
 
 class AirQualityDevice(object):
