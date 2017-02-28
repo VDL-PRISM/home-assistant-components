@@ -1,0 +1,3 @@
+https://github.com/philipbl/CoAPy/archive/python3.zip
+msgpack-python==0.4.8
+python-persistent-queue==1.3.0
