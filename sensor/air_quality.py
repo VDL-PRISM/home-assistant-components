@@ -49,22 +49,22 @@ SENSORS = {
 SENSOR_TYPES = {
     'connected': 'connected',
     'humidity': '%',
-    'invalid_misc': '#',
+    'invalid_misc': 'num',
     'large': 'pm',
-    'link_quality': '#',
+    'link_quality': 'num',
     'noise_level': 'dBm',
     'pm1': 'ug/m3',
     'pm10': 'ug/m3',
     'pm25': 'ug/m3',
-    'rx_invalid_crypt': '#',
-    'rx_invalid_frag': '#',
-    'rx_invalid_nwid': '#',
+    'rx_invalid_crypt': 'num',
+    'rx_invalid_frag': 'num',
+    'rx_invalid_nwid': 'num',
     'sampletime': 's',
     'sequence': 'sequence',
     'signal_level': 'dBm',
     'small': 'pm',
     'temperature': '°C',
-    'tx_retires': '#',
+    'tx_retires': 'num',
 }
 
 RUNNING = True
