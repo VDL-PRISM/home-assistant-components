@@ -37,8 +37,14 @@ CONF_MONITORS = 'monitors'
 SECONDS_IN_A_YEAR = 31536000
 
 SENSORS = {
-    'dylos': ['humidity', 'large', 'sampletime', 'sequence', 'small', 'temperature'],
-    'airu': ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence', 'temperature']
+    'dylos':   ['humidity', 'large', 'sampletime', 'sequence', 'small',
+                'temperature'],
+    'dylos-2': ['connected', 'humidity', 'invalid_misc', 'large',
+                'link_quality', 'noise_level', 'rx_invalid_crypt',
+                'rx_invalid_frag', 'rx_invalid_nwid', 'sampletime', 'sequence',
+                'signal_level', 'small', 'temperature', 'tx_retires']
+    'airu':    ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence',
+                'temperature']
 }
 SENSOR_TYPES = {
     'temperature': '°C',
