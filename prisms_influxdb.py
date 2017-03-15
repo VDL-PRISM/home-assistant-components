@@ -182,16 +182,16 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
 
     def action(now):
         while RUNNING:
-            _LOGGER.debug("Trying to upload data")
+            _LOGGER.info("Trying to upload data")
 
             if len(events) == 0:
                 # No more events to upload
-                _LOGGER.debug("Nothing to upload")
+                _LOGGER.info("Nothing to upload")
                 break
 
             events_chunk = events.peek(chunk_size)
             size = len(events_chunk)
-            _LOGGER.debug("Uploading chunk of size %s (%s)", size, len(events))
+            _LOGGER.info("Uploading chunk of size %s (%s)", size, len(events))
 
             try:
                 # Render and write events
@@ -203,7 +203,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
 
             if result:
                 # Chunk got saved so remove events
-                _LOGGER.debug("Data was uploaded successfully so deleting data")
+                _LOGGER.info("Data was uploaded successfully so deleting data")
                 events.delete(size)
 
                 if size < chunk_size:
@@ -214,7 +214,7 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
 
             else:
                 # Unable to write data so give up for now
-                _LOGGER.debug("Error while trying to upload data. Trying again later")
+                _LOGGER.error("Error while trying to upload data. Trying again later")
                 break
 
         if RUNNING:
@@ -223,12 +223,12 @@ def write_batch_data(hass, events, influx, render, batch_time, chunk_size):
 
             # Schedule again
             next = next_time()
-            _LOGGER.debug("Scheduling to upload data at %s", next)
+            _LOGGER.info("Scheduling to upload data at %s", next)
             track_point_in_time(hass, action, next)
 
     # Start the action
     next = next_time()
-    _LOGGER.debug("Scheduling to upload data at %s", next)
+    _LOGGER.info("Scheduling to upload data at %s", next)
     track_point_in_time(hass, action, next)
 
 
