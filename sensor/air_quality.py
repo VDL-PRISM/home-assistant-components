@@ -42,9 +42,9 @@ SENSORS = {
     'dylos-2': ['connected', 'humidity', 'invalid_misc', 'large',
                 'link_quality', 'noise_level', 'rx_invalid_crypt',
                 'rx_invalid_frag', 'rx_invalid_nwid', 'sampletime', 'sequence',
-                'signal_level', 'small', 'temperature', 'tx_retires']
+                'signal_level', 'small', 'temperature', 'tx_retires'],
     'airu':    ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence',
-                'temperature']
+                'temperature'],
 }
 SENSOR_TYPES = {
     'temperature': '°C',
