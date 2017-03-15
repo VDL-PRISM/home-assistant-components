@@ -81,7 +81,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
                  default=timedelta(minutes=5)): cv.time_period,
     vol.Optional(CONF_DEVICE_CLEANUP_TIME,
                  default=timedelta(days=1)): cv.time_period,
-    vol.Optional(CONF_BATCH_SIZE, default=20): cv.positive_int,
+    vol.Optional(CONF_BATCH_SIZE, default=10): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
     vol.Optional(CONF_MONITORS, default=[]):
         vol.All(cv.ensure_list, [cv.string]),
