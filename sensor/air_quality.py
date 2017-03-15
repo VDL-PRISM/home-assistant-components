@@ -218,6 +218,10 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
             continue
 
+        if sensor_type not in SENSORS:
+            _LOGGER.error("%s is not a recognized sensor type", sensor_type)
+            continue
+
         # Add the new device to home assistant
         sensors = []
         callbacks = []
