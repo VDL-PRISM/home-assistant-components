@@ -37,19 +37,34 @@ CONF_MONITORS = 'monitors'
 SECONDS_IN_A_YEAR = 31536000
 
 SENSORS = {
-    'dylos': ['humidity', 'large', 'sampletime', 'sequence', 'small', 'temperature'],
-    'airu': ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence', 'temperature']
+    'dylos':   ['humidity', 'large', 'sampletime', 'sequence', 'small',
+                'temperature'],
+    'dylos-2': ['connected', 'humidity', 'invalid_misc', 'large',
+                'link_quality', 'noise_level', 'rx_invalid_crypt',
+                'rx_invalid_frag', 'rx_invalid_nwid', 'sampletime', 'sequence',
+                'signal_level', 'small', 'temperature', 'tx_retires'],
+    'airu':    ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence',
+                'temperature'],
 }
 SENSOR_TYPES = {
-    'temperature': '°C',
+    'connected': 'connected',
     'humidity': '%',
+    'invalid_misc': 'num',
     'large': 'pm',
-    'small': 'pm',
+    'link_quality': 'num',
+    'noise_level': 'dBm',
     'pm1': 'ug/m3',
     'pm10': 'ug/m3',
     'pm25': 'ug/m3',
+    'rx_invalid_crypt': 'num',
+    'rx_invalid_frag': 'num',
+    'rx_invalid_nwid': 'num',
+    'sampletime': 's',
     'sequence': 'sequence',
-    'sampletime': 's'
+    'signal_level': 'dBm',
+    'small': 'pm',
+    'temperature': '°C',
+    'tx_retires': 'num',
 }
 
 RUNNING = True
@@ -216,6 +231,10 @@ def discover(discover_client, devices, provided_devices, add_devices):
                 _LOGGER.warning("Address of device has changed!")
                 devices[name].address = address
 
+            continue
+
+        if sensor_type not in SENSORS:
+            _LOGGER.error("%s is not a recognized sensor type", sensor_type)
             continue
 
         # Add the new device to home assistant
