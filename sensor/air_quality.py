@@ -110,9 +110,9 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
         now = dt_util.now()
         def active(device):
             if now - device.last_discovered > device_cleanup_time:
-                _LOGGER.info("Skipping device %s - %s: Hasn't been "
-                             "seen since %s", device.name, device.address,
-                             device.last_discovered)
+                _LOGGER.warning("Skipping device %s - %s: Hasn't been "
+                                "seen since %s", device.name, device.address,
+                                device.last_discovered)
                 return False
             else:
                 return True
@@ -186,7 +186,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
 
 
 def discover(discover_client, devices, provided_devices, add_devices):
-    _LOGGER.debug("Looking for new Air Quality devices")
+    _LOGGER.info("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
     responses = discover_client.multicast_discover()
@@ -207,7 +207,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
     now = dt_util.now()
 
-    _LOGGER.debug("Processing discovered sensors (%s):", len(responses))
+    _LOGGER.info("Processing discovered sensors (%s):", len(responses))
     for response in responses:
         if response is None:
             # This means that we are trying to exit in the middle of discovery
@@ -234,27 +234,27 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
         name = m.group(1)
         address = response.source[0]
-        _LOGGER.debug("Found device: %s - %s", name, address)
+        _LOGGER.info("\tFound device: %s - %s", name, address)
 
         if name in devices:
-            _LOGGER.debug("Device has already been discovered")
+            _LOGGER.info("\tDevice has already been discovered")
             devices[name].last_discovered = now
 
             if devices[name].address != address:
-                _LOGGER.warning("Address of device has changed!")
+                _LOGGER.warning("\tAddress of device has changed!")
                 devices[name].address = address
 
             continue
 
         if sensor_type not in SENSORS:
-            _LOGGER.error("%s is not a recognized sensor type", sensor_type)
+            _LOGGER.error("\t%s is not a recognized sensor type", sensor_type)
             continue
 
         # Add the new device to home assistant
         sensors = []
         callbacks = []
 
-        _LOGGER.debug("Adding %s (%s) to home assistant", name, address)
+        _LOGGER.info("\tAdding %s (%s) to home assistant", name, address)
         for sensor in SENSORS[sensor_type]:
             air_quality_sensor = AirQualitySensor(name, sensor)
             sensors.append(air_quality_sensor)
@@ -270,7 +270,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
 
 def get_data(device, batch_size, max_data_transferred):
-    _LOGGER.debug("Getting new data from %s (%s) at %s",
+    _LOGGER.info("Getting new data from %s (%s) at %s",
                   device.name,
                   device.address,
                   dt_util.now())
@@ -280,7 +280,7 @@ def get_data(device, batch_size, max_data_transferred):
         total_packets = 0
 
         while True:
-            _LOGGER.debug("ACKing %s and requesting %s (%s - %s)",
+            _LOGGER.info("ACKing %s and requesting %s (%s - %s)",
                           device.ack,
                           batch_size,
                           device.name,
@@ -290,20 +290,21 @@ def get_data(device, batch_size, max_data_transferred):
 
             if response is None:
                 device.ack = 0
-                _LOGGER.debug(
+                _LOGGER.info(
                     "Did not receive a response from sensor %s - %s",
                     device.name, device.address)
                 break
 
             if len(response.payload) == 0:
                 device.ack = 0
-                _LOGGER.debug(
+                _LOGGER.info(
                     "Received an empty payload from %s - %s",
                     device.name, device.address)
                 break
 
             data = msgpack.unpackb(response.payload, use_list=False)
-            _LOGGER.debug("Received data (%s): %s (%s - %s - %s)",
+            _LOGGER.info("Received data from %s: %s samples", device.name, len(data))
+            _LOGGER.debug("Data (%s): %s (%s - %s - %s)",
                           len(data),
                           data,
                           device.name,
@@ -347,7 +348,7 @@ def get_data(device, batch_size, max_data_transferred):
             # If we get all of the data we ask for, then let's request more
             # right away
             if device.ack != batch_size:
-                _LOGGER.debug(
+                _LOGGER.info(
                     "%s - %s: Stopping because acks (%s) != size (%s)",
                     device.name, device.address, device.ack, batch_size)
                 time.sleep(1)
@@ -355,11 +356,11 @@ def get_data(device, batch_size, max_data_transferred):
 
             # Let's give the system some time to catch up
             # We will try again after CONF_UPDATE_TIME amount of time
-            _LOGGER.debug("%s (total_packets) >= %s (max_data_transferred)",
+            _LOGGER.info("%s (total_packets) >= %s (max_data_transferred)",
                           total_packets,
                           max_data_transferred)
             if total_packets >= max_data_transferred:
-                _LOGGER.debug(
+                _LOGGER.info(
                     "%s - %s: Stopping because total_packets (%s) > %s",
                     device.name, device.address, total_packets, max_data_transferred)
                 time.sleep(1)
