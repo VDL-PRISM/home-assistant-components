@@ -237,8 +237,10 @@ def get_json_body(event, hass, tags):
 
     try:
         _state = state_helper.state_as_number(state)
+        _state_key = "value"
     except ValueError:
         _state = state.state
+        _state_key = "state"
 
     measurement = state.attributes.get('unit_of_measurement')
     if measurement in (None, ''):
@@ -255,7 +257,7 @@ def get_json_body(event, hass, tags):
             },
             'time': event_time,
             'fields': {
-                'value': _state,
+                _state_key: _state,
             }
         }
     ]
