@@ -42,7 +42,7 @@ SENSORS = {
     'dylos-2': ['associated', 'data_rate', 'humidity', 'invalid_misc', 'large',
                 'link_quality', 'local_ping_errors', 'local_ping_latency',
                 'local_ping_packet_loss', 'local_ping_total', 'noise_level',
-                'remote_ping_errors', 'remote_ping_latency',
+                'queue_length', 'remote_ping_errors', 'remote_ping_latency',
                 'remote_ping_packet_loss', 'remote_ping_total',
                 'rx_invalid_crypt', 'rx_invalid_frag', 'rx_invalid_nwid',
                 'sampletime', 'sequence', 'signal_level', 'small',
@@ -53,6 +53,7 @@ SENSORS = {
 SENSOR_TYPES = {
     'associated': 'associated',
     'data_rate': 'Mbps',
+    'data_points_received': 'num',
     'humidity': '%',
     'invalid_misc': 'num',
     'large': 'pm',
@@ -65,6 +66,7 @@ SENSOR_TYPES = {
     'pm1': 'ug/m3',
     'pm10': 'ug/m3',
     'pm25': 'ug/m3',
+    'queue_length': 'num',
     'remote_ping_errors': 'num',
     'remote_ping_latency': 'ms',
     'remote_ping_packet_loss': 'num',
@@ -260,12 +262,17 @@ def discover(discover_client, devices, provided_devices, add_devices):
             sensors.append(air_quality_sensor)
             callbacks.append(air_quality_sensor.update)
 
+        # Create a special sensor that keeps track of how many
+        # packets are received from a sensor
+        air_quality_sensor = AirQualitySensor(name, 'data_points_received')
+        sensors.append(air_quality_sensor)
 
         if RUNNING:
             devices[name] = AirQualityDevice(address,
                                              name,
                                              sensor_type,
-                                             callbacks)
+                                             callbacks,
+                                             air_quality_sensor.update)
             add_devices(sensors)
 
 
@@ -316,6 +323,10 @@ def get_data(device, batch_size, max_data_transferred):
 
             keys = SENSORS[device.sensor_type]
             now = time.time()
+
+            device.packet_received_callback({'data_points_received': len(data),
+                                             'sequence': 0,
+                                             'sampletime': now})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -375,11 +386,12 @@ def get_data(device, batch_size, max_data_transferred):
 
 
 class AirQualityDevice(object):
-    def __init__(self, address, name, sensor_type, callbacks):
+    def __init__(self, address, name, sensor_type, callbacks, packet_received_callback):
         self._address = address
         self.name = name
         self.sensor_type = sensor_type
         self.callbacks = callbacks
+        self.packet_received_callback = packet_received_callback
 
         self.ack = 0
         self.last_discovered = dt_util.now()
