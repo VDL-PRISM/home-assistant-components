@@ -111,10 +111,10 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     def data_action(now):
         now = dt_util.now()
         def active(device):
-            if now - device.last_discovered > device_cleanup_time:
+            if now - device.last_seen > device_cleanup_time:
                 _LOGGER.warning("Skipping device %s - %s: Hasn't been "
                                 "seen since %s", device.name, device.address,
-                                device.last_discovered)
+                                device.last_seen)
                 return False
             else:
                 return True
@@ -240,7 +240,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
         if name in devices:
             _LOGGER.info("\tDevice has already been discovered")
-            devices[name].last_discovered = now
+            devices[name].last_seen = now
 
             if devices[name].address != address:
                 _LOGGER.warning("\tAddress of device has changed!")
@@ -318,15 +318,15 @@ def get_data(device, batch_size, max_data_transferred):
                           device.address,
                           response.mid)
 
+            device.last_seen = dt_util.now()
             device.ack = len(data)
             total_packets += device.ack
 
             keys = SENSORS[device.sensor_type]
-            now = time.time()
 
             device.packet_received_callback({'data_points_received': len(data),
                                              'sequence': 0,
-                                             'sampletime': now})
+                                             'sampletime': time.time()})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -394,7 +394,7 @@ class AirQualityDevice(object):
         self.packet_received_callback = packet_received_callback
 
         self.ack = 0
-        self.last_discovered = dt_util.now()
+        self.last_seen = dt_util.now()
         self.client = Client(server=(address, 5683))
 
     @property
