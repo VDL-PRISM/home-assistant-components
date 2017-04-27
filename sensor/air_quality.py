@@ -323,10 +323,11 @@ def get_data(device, batch_size, max_data_transferred):
             total_packets += device.ack
 
             keys = SENSORS[device.sensor_type]
+            now = time.time()
 
             device.packet_received_callback({'data_points_received': len(data),
                                              'sequence': 0,
-                                             'sampletime': time.time()})
+                                             'sampletime': now})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
