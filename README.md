@@ -10,6 +10,8 @@ To use, put these files inside the `custom_components` folder of your Home Assis
 pip install -r requirements.txt
 ```
 
+Note: Make sure to use the same `pip` that Home Assistant is using.
+
 ### PRISMS Influxdb Component
 
 This component takes care of uploading all data that comes into Home Assistant into InfluxDB. All data is stored persistently while uploading occurs in case of failure or power outage.
