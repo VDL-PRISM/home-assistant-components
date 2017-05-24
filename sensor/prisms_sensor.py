@@ -364,7 +364,7 @@ class PrismsDevice(object):
     def update_data(self, data):
         for key, value in data.items():
             if key not in self.sensors:
-                sensor = AirQualitySensor(name, key)
+                sensor = AirQualitySensor(self.name, key)
                 self.add_devices_cb([sensor])
                 self.sensors[key] = sensor
 
