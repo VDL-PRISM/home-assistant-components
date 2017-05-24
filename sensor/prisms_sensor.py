@@ -226,7 +226,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
         # Create a special sensor that keeps track of how many
         # packets are received from a sensor
-        data_points_sensor = AirQualitySensor(name, 'data_points_received')
+        data_points_sensor = AirQualitySensor(name, b'data_points_received')
         add_devices([data_points_sensor])
 
         if RUNNING:
@@ -361,7 +361,7 @@ class PrismsDevice(object):
         self.client = Client(server=(new_address, 5683))
 
     def update_data(self, data):
-        for key, value in data:
+        for key, value in data.items():
             if key not in self.callbacks:
                 sensor = AirQualitySensor(name, key)
                 self.add_devices_cb([sensor])
@@ -404,8 +404,8 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return {'sequence': self._data['sequence'],
-                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'])}
+        return {'sequence': self._data[b'sequence'],
+                'sample_time': dt_util.utc_from_timestamp(self._data[b'sampletime'])}
 
     @property
     def state(self):
