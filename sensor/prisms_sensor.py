@@ -36,39 +36,6 @@ CONF_MONITORS = 'monitors'
 
 SECONDS_IN_A_YEAR = 31536000
 
-SENSOR_TYPES = {
-    'associated': 'associated',
-    'data_rate': 'Mbps',
-    'data_points_received': 'num',
-    'humidity': '%',
-    'invalid_misc': 'num',
-    'large': 'pm',
-    'link_quality': 'num',
-    'local_ping_errors': 'num',
-    'local_ping_latency': 'ms',
-    'local_ping_packet_loss': 'num',
-    'local_ping_total': 'num',
-    'noise_level': 'dBm',
-    'pm1': 'ug/m3',
-    'pm10': 'ug/m3',
-    'pm25': 'ug/m3',
-    'remote_ping_errors': 'num',
-    'remote_ping_latency': 'ms',
-    'remote_ping_packet_loss': 'num',
-    'remote_ping_total': 'num',
-    'rx_invalid_crypt': 'num',
-    'rx_invalid_frag': 'num',
-    'rx_invalid_nwid': 'num',
-    'sampletime': 's',
-    'sequence': 'sequence',
-    'signal_level': 'dBm',
-    'small': 'pm',
-    'temperature': '°C',
-    'tx_retires': 'num',
-    'queue_length': 'num',
-    'missed_beacon': 'num',
-}
-
 RUNNING = True
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -287,9 +254,9 @@ def get_data(device, batch_size, max_data_transferred):
 
             now = time.time()
 
-            device.packet_received_cb({'data_points_received': len(data),
-                                       'sequence': 0,
-                                       'sampletime': now})
+            device.packet_received_cb({'data_points_received': (len(data), 'num'),
+                                       'sequence': (0, 'sequence'),
+                                       'sampletime': (now, 's')})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -407,7 +374,10 @@ class AirQualitySensor(Entity):
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement of this entity, if any."""
-        return self._unit_of_measurement
+        if self._data is None:
+            return None
+
+        return self._data[self._name][1]
 
     @property
     def device_state_attributes(self):
@@ -415,8 +385,8 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return {'sequence': self._data['sequence'],
-                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'])}
+        return {'sequence': self._data['sequence'][0],
+                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'][0])}
 
     @property
     def state(self):
@@ -424,7 +394,7 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return self._data[self._name]
+        return self._data[self._name][0]
 
     @property
     def force_update(self):
