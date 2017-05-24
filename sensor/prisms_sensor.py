@@ -283,22 +283,21 @@ def get_data(device, batch_size, max_data_transferred):
 
             now = time.time()
 
-            device.packet_received_cb({'data_points_received': len(data),
-                                       'sequence': 0,
-                                       'sampletime': now})
+            device.packet_received_cb({b'data_points_received': len(data),
+                                       b'sequence': 0,
+                                       b'sampletime': now})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                print('-' * 80)
-                print(d)
-                print('-' * 80)
+                # TODO: Not sure why this is needed
+                d = d[0]
 
                 # Make sure the timestamp makes sense
-                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
+                if abs(now - d[b'sampletime']) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
                         "Sample time is too far off: %s. Data: %s",
-                        d['sampletime'],
+                        d[b'sampletime'],
                         d)
 
                 _LOGGER.debug("Updating data for %s - %s", device.name, device.address)
