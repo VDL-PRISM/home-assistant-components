@@ -65,6 +65,7 @@ SENSOR_TYPES = {
     'small': 'pm',
     'temperature': '°C',
     'tx_retires': 'num',
+    'queue_length', 'num',
 }
 
 RUNNING = True
