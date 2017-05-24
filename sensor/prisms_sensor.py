@@ -390,7 +390,7 @@ class AirQualitySensor(Entity):
 
     def update(self, data):
         self._data = data
-        self.update_ha_state()
+        self.schedule_update_ha_state()
 
     @property
     def should_poll(self):
