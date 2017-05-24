@@ -37,34 +37,34 @@ CONF_MONITORS = 'monitors'
 SECONDS_IN_A_YEAR = 31536000
 
 SENSOR_TYPES = {
-    b'associated': 'associated',
-    b'data_rate': 'Mbps',
-    b'data_points_received': 'num',
-    b'humidity': '%',
-    b'invalid_misc': 'num',
-    b'large': 'pm',
-    b'link_quality': 'num',
-    b'local_ping_errors': 'num',
-    b'local_ping_latency': 'ms',
-    b'local_ping_packet_loss': 'num',
-    b'local_ping_total': 'num',
-    b'noise_level': 'dBm',
-    b'pm1': 'ug/m3',
-    b'pm10': 'ug/m3',
-    b'pm25': 'ug/m3',
-    b'remote_ping_errors': 'num',
-    b'remote_ping_latency': 'ms',
-    b'remote_ping_packet_loss': 'num',
-    b'remote_ping_total': 'num',
-    b'rx_invalid_crypt': 'num',
-    b'rx_invalid_frag': 'num',
-    b'rx_invalid_nwid': 'num',
-    b'sampletime': 's',
-    b'sequence': 'sequence',
-    b'signal_level': 'dBm',
-    b'small': 'pm',
-    b'temperature': '°C',
-    b'tx_retires': 'num',
+    'associated': 'associated',
+    'data_rate': 'Mbps',
+    'data_points_received': 'num',
+    'humidity': '%',
+    'invalid_misc': 'num',
+    'large': 'pm',
+    'link_quality': 'num',
+    'local_ping_errors': 'num',
+    'local_ping_latency': 'ms',
+    'local_ping_packet_loss': 'num',
+    'local_ping_total': 'num',
+    'noise_level': 'dBm',
+    'pm1': 'ug/m3',
+    'pm10': 'ug/m3',
+    'pm25': 'ug/m3',
+    'remote_ping_errors': 'num',
+    'remote_ping_latency': 'ms',
+    'remote_ping_packet_loss': 'num',
+    'remote_ping_total': 'num',
+    'rx_invalid_crypt': 'num',
+    'rx_invalid_frag': 'num',
+    'rx_invalid_nwid': 'num',
+    'sampletime': 's',
+    'sequence': 'sequence',
+    'signal_level': 'dBm',
+    'small': 'pm',
+    'temperature': '°C',
+    'tx_retires': 'num',
 }
 
 RUNNING = True
@@ -226,7 +226,7 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
         # Create a special sensor that keeps track of how many
         # packets are received from a sensor
-        data_points_sensor = AirQualitySensor(name, b'data_points_received')
+        data_points_sensor = AirQualitySensor(name, 'data_points_received')
         add_devices([data_points_sensor])
 
         if RUNNING:
@@ -283,21 +283,22 @@ def get_data(device, batch_size, max_data_transferred):
 
             now = time.time()
 
-            device.packet_received_cb({b'data_points_received': len(data),
-                                       b'sequence': 0,
-                                       b'sampletime': now})
+            device.packet_received_cb({'data_points_received': len(data),
+                                       'sequence': 0,
+                                       'sampletime': now})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
                 # TODO: Not sure why this is needed
                 d = d[0]
+                d = {key.encode(): value for key, value in d.items()}
 
                 # Make sure the timestamp makes sense
-                if abs(now - d[b'sampletime']) >= SECONDS_IN_A_YEAR:
+                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
                         "Sample time is too far off: %s. Data: %s",
-                        d[b'sampletime'],
+                        d['sampletime'],
                         d)
 
                 _LOGGER.debug("Updating data for %s - %s", device.name, device.address)
@@ -410,8 +411,8 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return {'sequence': self._data[b'sequence'],
-                'sample_time': dt_util.utc_from_timestamp(self._data[b'sampletime'])}
+        return {'sequence': self._data['sequence'],
+                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'])}
 
     @property
     def state(self):
