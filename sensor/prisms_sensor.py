@@ -66,6 +66,7 @@ SENSOR_TYPES = {
     'temperature': '°C',
     'tx_retires': 'num',
     'queue_length': 'num',
+    'missed_beacon': 'num',
 }
 
 RUNNING = True
