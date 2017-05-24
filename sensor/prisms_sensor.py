@@ -339,6 +339,7 @@ class PrismsDevice(object):
         self.add_devices_cb = add_devices_cb
         self.packet_received_cb = packet_received_cb
 
+        self.sensors = {}
         self.ack = 0
         self.last_discovered = dt_util.now()
         self.client = Client(server=(address, 5683))
@@ -362,13 +363,13 @@ class PrismsDevice(object):
 
     def update_data(self, data):
         for key, value in data.items():
-            if key not in self.callbacks:
+            if key not in self.sensors:
                 sensor = AirQualitySensor(name, key)
                 self.add_devices_cb([sensor])
-                self.callbacks[key] = sensor
+                self.sensors[key] = sensor
 
             _LOGGER.debug("Calling update on %s (%s - %s)", key, self.name, self.address)
-            self.callbacks[key].update(data)
+            self.sensors[key].update(data)
             time.sleep(0.05)
 
 
