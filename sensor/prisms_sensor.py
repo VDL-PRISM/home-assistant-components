@@ -292,8 +292,6 @@ def get_data(device, batch_size, max_data_transferred):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                # TODO: Not sure why this is needed
-                d = d[0]
                 d = {key.decode(): value for key, value in d.items()}
 
                 # Make sure the timestamp makes sense
