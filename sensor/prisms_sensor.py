@@ -139,7 +139,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             discover(discover_client,
                      devices,
                      provided_devices,
-                     add_devices)
+                     add_devices,
+                     hass)
         except Exception as exp:
             _LOGGER.exception(
                 "Error occurred while discovering devices: %s",
@@ -174,7 +175,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(discover_client, devices, provided_devices, add_devices):
+def discover(discover_client, devices, provided_devices, add_devices, hass):
     _LOGGER.info("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
@@ -233,9 +234,10 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
         if RUNNING:
             devices[name] = PrismsDevice(address,
-                                             name,
-                                             add_devices,
-                                             data_points_sensor.update)
+                                         name,
+                                         add_devices,
+                                         data_points_sensor.update,
+                                         hass)
 
 
 def get_data(device, batch_size, max_data_transferred):
@@ -334,11 +336,12 @@ def get_data(device, batch_size, max_data_transferred):
 
 
 class PrismsDevice(object):
-    def __init__(self, address, name, add_devices_cb, packet_received_cb):
+    def __init__(self, address, name, add_devices_cb, packet_received_cb, hass):
         self._address = address
         self.name = name
         self.add_devices_cb = add_devices_cb
         self.packet_received_cb = packet_received_cb
+        self.hass = hass
 
         self.ignore_sensors = ['ip_address', 'name']
         self.sensors = {}
@@ -370,7 +373,7 @@ class PrismsDevice(object):
                 continue
 
             if key not in self.sensors:
-                sensor = AirQualitySensor(self.name, key)
+                sensor = AirQualitySensor(self.name, key, hass)
                 self.add_devices_cb([sensor])
                 self.sensors[key] = sensor
 
@@ -380,9 +383,10 @@ class PrismsDevice(object):
 
 
 class AirQualitySensor(Entity):
-    def __init__(self, monitor_name, sensor_name):
+    def __init__(self, monitor_name, sensor_name, hass):
         self._monitor_name = monitor_name
         self._name = sensor_name
+        self.hass = hass
         self._unit_of_measurement = SENSOR_TYPES[sensor_name]
         self._data = None
 
