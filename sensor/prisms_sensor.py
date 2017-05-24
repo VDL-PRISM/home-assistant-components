@@ -339,6 +339,7 @@ class PrismsDevice(object):
         self.add_devices_cb = add_devices_cb
         self.packet_received_cb = packet_received_cb
 
+        self.ignore_sensors = ['ip_address', 'name']
         self.sensors = {}
         self.ack = 0
         self.last_discovered = dt_util.now()
@@ -363,6 +364,10 @@ class PrismsDevice(object):
 
     def update_data(self, data):
         for key, value in data.items():
+            if key in self.ignore_sensors:
+                # Some data we don't care about
+                continue
+
             if key not in self.sensors:
                 sensor = AirQualitySensor(self.name, key)
                 self.add_devices_cb([sensor])
