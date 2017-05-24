@@ -373,7 +373,7 @@ class PrismsDevice(object):
                 continue
 
             if key not in self.sensors:
-                sensor = AirQualitySensor(self.name, key, hass)
+                sensor = AirQualitySensor(self.name, key, self.hass)
                 self.add_devices_cb([sensor])
                 self.sensors[key] = sensor
 
