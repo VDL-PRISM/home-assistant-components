@@ -76,7 +76,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
                  default=timedelta(minutes=5)): cv.time_period,
     vol.Optional(CONF_DEVICE_CLEANUP_TIME,
                  default=timedelta(days=1)): cv.time_period,
-    vol.Optional(CONF_BATCH_SIZE, default=10): cv.positive_int,
+    vol.Optional(CONF_BATCH_SIZE, default=2): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
     vol.Optional(CONF_MONITORS, default=[]):
         vol.All(cv.ensure_list, [cv.string]),
@@ -281,7 +281,6 @@ def get_data(device, batch_size, max_data_transferred):
             device.ack = len(data)
             total_packets += device.ack
 
-            keys = SENSORS[device.sensor_type]
             now = time.time()
 
             device.packet_received_cb({'data_points_received': len(data),
@@ -291,16 +290,6 @@ def get_data(device, batch_size, max_data_transferred):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                # Make sure data matches the number of keys expected
-                if len(keys) != len(d):
-                    _LOGGER.warning(
-                        "Data does not match the number of keys. Ignoring: %s",
-                        d)
-                    continue
-
-                # Transform data into a dict
-                d = dict(zip(keys, d))
-
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
@@ -308,13 +297,8 @@ def get_data(device, batch_size, max_data_transferred):
                         d['sampletime'],
                         d)
 
-                _LOGGER.debug("Calling callbacks for %s - %s on %s",
-                              device.name,
-                              device.address,
-                              d)
-                for cb in device.callbacks:
-                    cb(d)
-                    time.sleep(.05)
+                _LOGGER.debug("Updating data for %s - %s", device.name, device.address)
+                device.update_data(d)
 
             # If we get all of the data we ask for, then let's request more
             # right away
@@ -372,6 +356,17 @@ class PrismsDevice(object):
 
         _LOGGER.debug("Creating a new client with new address")
         self.client = Client(server=(new_address, 5683))
+
+    def update_data(self, data):
+        for key, value in data:
+            if key not in self.callbacks:
+                sensor = AirQualitySensor(name, key)
+                self.add_devices_cb([sensor])
+                self.callbacks[key] = sensor
+
+            _LOGGER.debug("Calling update on %s (%s - %s)", key, self.name, self.address)
+            self.callbacks[key].update(data)
+            time.sleep(0.05)
 
 
 class AirQualitySensor(Entity):
