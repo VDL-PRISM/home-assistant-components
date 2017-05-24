@@ -229,7 +229,7 @@ def discover(discover_client, devices, provided_devices, add_devices, hass):
 
         # Create a special sensor that keeps track of how many
         # packets are received from a sensor
-        data_points_sensor = AirQualitySensor(name, 'data_points_received')
+        data_points_sensor = AirQualitySensor(name, 'data_points_received', hass)
         add_devices([data_points_sensor])
 
         if RUNNING:
