@@ -292,7 +292,7 @@ def get_data(device, batch_size, max_data_transferred):
             for d in data:
                 # TODO: Not sure why this is needed
                 d = d[0]
-                d = {key.encode(): value for key, value in d.items()}
+                d = {key.decode(): value for key, value in d.items()}
 
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
