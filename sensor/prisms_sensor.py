@@ -36,20 +36,6 @@ CONF_MONITORS = 'monitors'
 
 SECONDS_IN_A_YEAR = 31536000
 
-SENSORS = {
-    'dylos':   ['humidity', 'large', 'sampletime', 'sequence', 'small',
-                'temperature'],
-    'dylos-2': ['associated', 'data_rate', 'humidity', 'invalid_misc', 'large',
-                'link_quality', 'local_ping_errors', 'local_ping_latency',
-                'local_ping_packet_loss', 'local_ping_total', 'noise_level',
-                'remote_ping_errors', 'remote_ping_latency',
-                'remote_ping_packet_loss', 'remote_ping_total',
-                'rx_invalid_crypt', 'rx_invalid_frag', 'rx_invalid_nwid',
-                'sampletime', 'sequence', 'signal_level', 'small',
-                'temperature', 'tx_retires'],
-    'airu':    ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence',
-                'temperature'],
-}
 SENSOR_TYPES = {
     'associated': 'associated',
     'data_rate': 'Mbps',
@@ -214,19 +200,6 @@ def discover(discover_client, devices, provided_devices, add_devices):
             # This means that we are trying to exit in the middle of discovery
             break
 
-        # TODO: I should actually parse the response and not just match
-        if b'</air_quality>' not in response.payload:
-            # It's not a sensor we care about
-            continue
-
-        # Get the sensor type
-        m = re.search("</type=(.*?)>", response.payload.decode('utf8'))
-        if m is None:
-            _LOGGER.warning("Couldn't find type in response: %s", response)
-            continue
-
-        sensor_type = m.group(1)
-
         # Get the hostname
         m = re.search("</name=(.*?)>", response.payload.decode('utf8'))
         if m is None:
@@ -247,32 +220,20 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
             continue
 
-        if sensor_type not in SENSORS:
-            _LOGGER.error("\t%s is not a recognized sensor type", sensor_type)
-            continue
-
         # Add the new device to home assistant
         sensors = []
         callbacks = []
 
-        _LOGGER.info("\tAdding %s (%s) to home assistant", name, address)
-        for sensor in SENSORS[sensor_type]:
-            air_quality_sensor = AirQualitySensor(name, sensor)
-            sensors.append(air_quality_sensor)
-            callbacks.append(air_quality_sensor.update)
-
         # Create a special sensor that keeps track of how many
         # packets are received from a sensor
-        air_quality_sensor = AirQualitySensor(name, 'data_points_received')
-        sensors.append(air_quality_sensor)
+        data_points_sensor = AirQualitySensor(name, 'data_points_received')
+        add_devices([data_points_sensor])
 
         if RUNNING:
-            devices[name] = AirQualityDevice(address,
+            devices[name] = PrismsDevice(address,
                                              name,
-                                             sensor_type,
-                                             callbacks,
-                                             air_quality_sensor.update)
-            add_devices(sensors)
+                                             add_devices,
+                                             data_points_sensor.update)
 
 
 def get_data(device, batch_size, max_data_transferred):
@@ -292,7 +253,7 @@ def get_data(device, batch_size, max_data_transferred):
                           device.name,
                           device.address)
             payload = struct.pack('!HH', device.ack, batch_size)
-            response = device.client.get('air_quality', payload=payload)
+            response = device.client.get('data', payload=payload)
 
             if response is None:
                 device.ack = 0
@@ -323,9 +284,9 @@ def get_data(device, batch_size, max_data_transferred):
             keys = SENSORS[device.sensor_type]
             now = time.time()
 
-            device.packet_received_callback({'data_points_received': len(data),
-                                             'sequence': 0,
-                                             'sampletime': now})
+            device.packet_received_cb({'data_points_received': len(data),
+                                       'sequence': 0,
+                                       'sampletime': now})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
@@ -384,13 +345,12 @@ def get_data(device, batch_size, max_data_transferred):
         time.sleep(1)
 
 
-class AirQualityDevice(object):
-    def __init__(self, address, name, sensor_type, callbacks, packet_received_callback):
+class PrismsDevice(object):
+    def __init__(self, address, name, add_devices_cb, packet_received_cb):
         self._address = address
         self.name = name
-        self.sensor_type = sensor_type
-        self.callbacks = callbacks
-        self.packet_received_callback = packet_received_callback
+        self.add_devices_cb = add_devices_cb
+        self.packet_received_cb = packet_received_cb
 
         self.ack = 0
         self.last_discovered = dt_util.now()
