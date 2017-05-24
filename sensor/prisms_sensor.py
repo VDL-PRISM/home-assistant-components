@@ -290,6 +290,9 @@ def get_data(device, batch_size, max_data_transferred):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
+                # TODO: Not sure why this is necessary
+                d = d[0]
+
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
