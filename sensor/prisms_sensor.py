@@ -261,7 +261,7 @@ def get_data(device, batch_size, max_data_transferred):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                d = {key.decode(): value for key, value in d.items()}
+                d = {key.decode(): (value[0], value[1].decode()) for key, value in d.items()}
 
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime'][0]) >= SECONDS_IN_A_YEAR:
