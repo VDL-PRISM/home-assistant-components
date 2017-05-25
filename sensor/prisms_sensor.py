@@ -354,7 +354,6 @@ class AirQualitySensor(Entity):
         self._monitor_name = monitor_name
         self._name = sensor_name
         self.hass = hass
-        self._unit_of_measurement = SENSOR_TYPES[sensor_name]
         self._data = None
 
     def update(self, data):
