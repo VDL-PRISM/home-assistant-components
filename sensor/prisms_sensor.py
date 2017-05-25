@@ -264,10 +264,10 @@ def get_data(device, batch_size, max_data_transferred):
                 d = {key.decode(): value for key, value in d.items()}
 
                 # Make sure the timestamp makes sense
-                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
+                if abs(now - d['sampletime'][0]) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
                         "Sample time is too far off: %s. Data: %s",
-                        d['sampletime'],
+                        d['sampletime'][0],
                         d)
 
                 _LOGGER.debug("Updating data for %s - %s", device.name, device.address)
