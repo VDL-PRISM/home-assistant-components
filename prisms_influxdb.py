@@ -236,7 +236,7 @@ def get_json_body(event, hass, tags):
     state = event.data.get('new_state')
 
     try:
-        _state = state_helper.state_as_number(state)
+        _state = float(state_helper.state_as_number(state))
         _state_key = "value"
     except ValueError:
         _state = state.state
