@@ -164,10 +164,10 @@ def write_data(influx, json_body):
         return False
     except exceptions.InfluxDBClientError as e:
         error = json.loads(e.content)['error']
-        _LOGGER.exception('Error saving event "%s": %s', json_body, error)
+        _LOGGER.exception('Error saving event "%s": %s', str(json_body)[:1000], error)
         return False
     except exceptions.InfluxDBServerError as e:
-        _LOGGER.exception('Error saving event "%s" to InfluxDB: %s', json_body, e)
+        _LOGGER.exception('Error saving event "%s" to InfluxDB: %s', str(json_body)[:1000], e)
         return False
     except Exception:  # Catch anything else
         _LOGGER.exception("An unknown exception happened while uploading data")
