@@ -240,7 +240,7 @@ def get_data(device, batch_size, max_data_transferred):
                     device.name, device.address)
                 break
 
-            data = json.loads(response.payload)
+            data = json.loads(response.payload.decode())
             _LOGGER.info("Received data from %s: %s samples", device.name, len(data))
             _LOGGER.debug("Data (%s): %s (%s - %s - %s)",
                           len(data),
