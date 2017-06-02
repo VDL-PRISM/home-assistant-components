@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import json
 import logging
 from queue import Queue, Empty
 import random
@@ -11,7 +12,6 @@ from coapthon import defines
 from coapthon.client.coap import CoAP
 from coapthon.messages.request import Request
 from coapthon.utils import generate_random_token
-import msgpack
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
@@ -25,7 +25,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.5']
+REQUIREMENTS = ['CoAPy==4.1.5']
 
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
@@ -45,7 +45,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
                  default=timedelta(minutes=5)): cv.time_period,
     vol.Optional(CONF_DEVICE_CLEANUP_TIME,
                  default=timedelta(days=1)): cv.time_period,
-    vol.Optional(CONF_BATCH_SIZE, default=2): cv.positive_int,
+    vol.Optional(CONF_BATCH_SIZE, default=1): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
     vol.Optional(CONF_MONITORS, default=[]):
         vol.All(cv.ensure_list, [cv.string]),
@@ -240,7 +240,7 @@ def get_data(device, batch_size, max_data_transferred):
                     device.name, device.address)
                 break
 
-            data = msgpack.unpackb(response.payload, use_list=False)
+            data = json.loads(response.payload)
             _LOGGER.info("Received data from %s: %s samples", device.name, len(data))
             _LOGGER.debug("Data (%s): %s (%s - %s - %s)",
                           len(data),
@@ -261,8 +261,6 @@ def get_data(device, batch_size, max_data_transferred):
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                d = {key.decode(): (value[0], value[1].decode()) for key, value in d.items()}
-
                 # Make sure the timestamp makes sense
                 if abs(now - d['sampletime'][0]) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
