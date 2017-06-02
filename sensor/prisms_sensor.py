@@ -215,10 +215,11 @@ def get_data(device, batch_size, max_data_transferred):
                   dt_util.now())
 
     try:
-        data = None
         total_packets = 0
 
         while True:
+            data = None
+
             _LOGGER.info("ACKing %s and requesting %s (%s - %s)",
                           device.ack,
                           batch_size,
