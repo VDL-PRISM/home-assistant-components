@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import gzip
+import json
 import logging
 from queue import Queue, Empty
 import random
@@ -11,7 +13,6 @@ from coapthon import defines
 from coapthon.client.coap import CoAP
 from coapthon.messages.request import Request
 from coapthon.utils import generate_random_token
-import msgpack
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
@@ -25,7 +26,7 @@ import homeassistant.util.dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DEPENDENCIES = []
-REQUIREMENTS = ['msgpack-python==0.4.8', 'CoAPy==4.1.5']
+REQUIREMENTS = ['CoAPy==4.1.5']
 
 CONF_UPDATE_TIME = 'update_time'
 CONF_DISCOVER_TIME = 'discover_time'
@@ -36,51 +37,6 @@ CONF_MONITORS = 'monitors'
 
 SECONDS_IN_A_YEAR = 31536000
 
-SENSORS = {
-    'dylos':   ['humidity', 'large', 'sampletime', 'sequence', 'small',
-                'temperature'],
-    'dylos-2': ['associated', 'data_rate', 'humidity', 'invalid_misc', 'large',
-                'link_quality', 'local_ping_errors', 'local_ping_latency',
-                'local_ping_packet_loss', 'local_ping_total', 'noise_level',
-                'remote_ping_errors', 'remote_ping_latency',
-                'remote_ping_packet_loss', 'remote_ping_total',
-                'rx_invalid_crypt', 'rx_invalid_frag', 'rx_invalid_nwid',
-                'sampletime', 'sequence', 'signal_level', 'small',
-                'temperature', 'tx_retires'],
-    'airu':    ['humidity', 'pm1', 'pm10', 'pm25', 'sampletime', 'sequence',
-                'temperature'],
-}
-SENSOR_TYPES = {
-    'associated': 'associated',
-    'data_rate': 'Mbps',
-    'data_points_received': 'num',
-    'humidity': '%',
-    'invalid_misc': 'num',
-    'large': 'pm',
-    'link_quality': 'num',
-    'local_ping_errors': 'num',
-    'local_ping_latency': 'ms',
-    'local_ping_packet_loss': 'num',
-    'local_ping_total': 'num',
-    'noise_level': 'dBm',
-    'pm1': 'ug/m3',
-    'pm10': 'ug/m3',
-    'pm25': 'ug/m3',
-    'remote_ping_errors': 'num',
-    'remote_ping_latency': 'ms',
-    'remote_ping_packet_loss': 'num',
-    'remote_ping_total': 'num',
-    'rx_invalid_crypt': 'num',
-    'rx_invalid_frag': 'num',
-    'rx_invalid_nwid': 'num',
-    'sampletime': 's',
-    'sequence': 'sequence',
-    'signal_level': 'dBm',
-    'small': 'pm',
-    'temperature': '°C',
-    'tx_retires': 'num',
-}
-
 RUNNING = True
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -90,7 +46,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
                  default=timedelta(minutes=5)): cv.time_period,
     vol.Optional(CONF_DEVICE_CLEANUP_TIME,
                  default=timedelta(days=1)): cv.time_period,
-    vol.Optional(CONF_BATCH_SIZE, default=10): cv.positive_int,
+    vol.Optional(CONF_BATCH_SIZE, default=1): cv.positive_int,
     vol.Optional(CONF_MAX_DATA_TRANSFERRED, default=120): cv.positive_int,
     vol.Optional(CONF_MONITORS, default=[]):
         vol.All(cv.ensure_list, [cv.string]),
@@ -151,7 +107,8 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
             discover(discover_client,
                      devices,
                      provided_devices,
-                     add_devices)
+                     add_devices,
+                     hass)
         except Exception as exp:
             _LOGGER.exception(
                 "Error occurred while discovering devices: %s",
@@ -186,7 +143,7 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, stop)
 
 
-def discover(discover_client, devices, provided_devices, add_devices):
+def discover(discover_client, devices, provided_devices, add_devices, hass):
     _LOGGER.info("Looking for new Air Quality devices")
 
     # Send a message to discover new devices
@@ -214,19 +171,6 @@ def discover(discover_client, devices, provided_devices, add_devices):
             # This means that we are trying to exit in the middle of discovery
             break
 
-        # TODO: I should actually parse the response and not just match
-        if b'</air_quality>' not in response.payload:
-            # It's not a sensor we care about
-            continue
-
-        # Get the sensor type
-        m = re.search("</type=(.*?)>", response.payload.decode('utf8'))
-        if m is None:
-            _LOGGER.warning("Couldn't find type in response: %s", response)
-            continue
-
-        sensor_type = m.group(1)
-
         # Get the hostname
         m = re.search("</name=(.*?)>", response.payload.decode('utf8'))
         if m is None:
@@ -247,32 +191,21 @@ def discover(discover_client, devices, provided_devices, add_devices):
 
             continue
 
-        if sensor_type not in SENSORS:
-            _LOGGER.error("\t%s is not a recognized sensor type", sensor_type)
-            continue
-
         # Add the new device to home assistant
         sensors = []
         callbacks = []
 
-        _LOGGER.info("\tAdding %s (%s) to home assistant", name, address)
-        for sensor in SENSORS[sensor_type]:
-            air_quality_sensor = AirQualitySensor(name, sensor)
-            sensors.append(air_quality_sensor)
-            callbacks.append(air_quality_sensor.update)
-
         # Create a special sensor that keeps track of how many
         # packets are received from a sensor
-        air_quality_sensor = AirQualitySensor(name, 'data_points_received')
-        sensors.append(air_quality_sensor)
+        data_points_sensor = AirQualitySensor(name, 'data_points_received', hass)
+        add_devices([data_points_sensor])
 
         if RUNNING:
-            devices[name] = AirQualityDevice(address,
-                                             name,
-                                             sensor_type,
-                                             callbacks,
-                                             air_quality_sensor.update)
-            add_devices(sensors)
+            devices[name] = PrismsDevice(address,
+                                         name,
+                                         add_devices,
+                                         data_points_sensor.update,
+                                         hass)
 
 
 def get_data(device, batch_size, max_data_transferred):
@@ -282,17 +215,18 @@ def get_data(device, batch_size, max_data_transferred):
                   dt_util.now())
 
     try:
-        data = None
         total_packets = 0
 
         while True:
+            data = None
+
             _LOGGER.info("ACKing %s and requesting %s (%s - %s)",
                           device.ack,
                           batch_size,
                           device.name,
                           device.address)
             payload = struct.pack('!HH', device.ack, batch_size)
-            response = device.client.get('air_quality', payload=payload)
+            response = device.client.get('data', payload=payload)
 
             if response is None:
                 device.ack = 0
@@ -308,7 +242,7 @@ def get_data(device, batch_size, max_data_transferred):
                     device.name, device.address)
                 break
 
-            data = msgpack.unpackb(response.payload, use_list=False)
+            data = json.loads(gzip.decompress(response.payload).decode())
             _LOGGER.info("Received data from %s: %s samples", device.name, len(data))
             _LOGGER.debug("Data (%s): %s (%s - %s - %s)",
                           len(data),
@@ -320,40 +254,24 @@ def get_data(device, batch_size, max_data_transferred):
             device.ack = len(data)
             total_packets += device.ack
 
-            keys = SENSORS[device.sensor_type]
             now = time.time()
 
-            device.packet_received_callback({'data_points_received': len(data),
-                                             'sequence': 0,
-                                             'sampletime': now})
+            device.packet_received_cb({'data_points_received': (len(data), 'num'),
+                                       'sequence': (0, 'sequence'),
+                                       'sampletime': (now, 's')})
 
             # For each new piece of data, notify everyone that has
             # registered a callback
             for d in data:
-                # Make sure data matches the number of keys expected
-                if len(keys) != len(d):
-                    _LOGGER.warning(
-                        "Data does not match the number of keys. Ignoring: %s",
-                        d)
-                    continue
-
-                # Transform data into a dict
-                d = dict(zip(keys, d))
-
                 # Make sure the timestamp makes sense
-                if abs(now - d['sampletime']) >= SECONDS_IN_A_YEAR:
+                if abs(now - d['sampletime'][0]) >= SECONDS_IN_A_YEAR:
                     _LOGGER.warning(
                         "Sample time is too far off: %s. Data: %s",
-                        d['sampletime'],
+                        d['sampletime'][0],
                         d)
 
-                _LOGGER.debug("Calling callbacks for %s - %s on %s",
-                              device.name,
-                              device.address,
-                              d)
-                for cb in device.callbacks:
-                    cb(d)
-                    time.sleep(.05)
+                _LOGGER.debug("Updating data for %s - %s", device.name, device.address)
+                device.update_data(d)
 
             # If we get all of the data we ask for, then let's request more
             # right away
@@ -384,14 +302,16 @@ def get_data(device, batch_size, max_data_transferred):
         time.sleep(1)
 
 
-class AirQualityDevice(object):
-    def __init__(self, address, name, sensor_type, callbacks, packet_received_callback):
+class PrismsDevice(object):
+    def __init__(self, address, name, add_devices_cb, packet_received_cb, hass):
         self._address = address
         self.name = name
-        self.sensor_type = sensor_type
-        self.callbacks = callbacks
-        self.packet_received_callback = packet_received_callback
+        self.add_devices_cb = add_devices_cb
+        self.packet_received_cb = packet_received_cb
+        self.hass = hass
 
+        self.ignore_sensors = ['ip_address', 'name']
+        self.sensors = {}
         self.ack = 0
         self.last_discovered = dt_util.now()
         self.client = Client(server=(address, 5683))
@@ -413,17 +333,32 @@ class AirQualityDevice(object):
         _LOGGER.debug("Creating a new client with new address")
         self.client = Client(server=(new_address, 5683))
 
+    def update_data(self, data):
+        for key, value in data.items():
+            if key in self.ignore_sensors:
+                # Some data we don't care about
+                continue
+
+            if key not in self.sensors:
+                sensor = AirQualitySensor(self.name, key, self.hass)
+                self.add_devices_cb([sensor])
+                self.sensors[key] = sensor
+
+            _LOGGER.debug("Calling update on %s (%s - %s)", key, self.name, self.address)
+            self.sensors[key].update(data)
+            time.sleep(0.05)
+
 
 class AirQualitySensor(Entity):
-    def __init__(self, monitor_name, sensor_name):
+    def __init__(self, monitor_name, sensor_name, hass):
         self._monitor_name = monitor_name
         self._name = sensor_name
-        self._unit_of_measurement = SENSOR_TYPES[sensor_name]
+        self.hass = hass
         self._data = None
 
     def update(self, data):
         self._data = data
-        self.update_ha_state()
+        self.schedule_update_ha_state()
 
     @property
     def should_poll(self):
@@ -438,7 +373,10 @@ class AirQualitySensor(Entity):
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement of this entity, if any."""
-        return self._unit_of_measurement
+        if self._data is None:
+            return None
+
+        return self._data[self._name][1]
 
     @property
     def device_state_attributes(self):
@@ -446,8 +384,8 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return {'sequence': self._data['sequence'],
-                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'])}
+        return {'sequence': self._data['sequence'][0],
+                'sample_time': dt_util.utc_from_timestamp(self._data['sampletime'][0])}
 
     @property
     def state(self):
@@ -455,7 +393,7 @@ class AirQualitySensor(Entity):
         if self._data is None:
             return None
 
-        return self._data[self._name]
+        return self._data[self._name][0]
 
     @property
     def force_update(self):
