@@ -279,7 +279,7 @@ def get_data(device, batch_size, max_data_transferred):
                 _LOGGER.info(
                     "%s - %s: Stopping because acks (%s) != size (%s)",
                     device.name, device.address, device.ack, batch_size)
-                time.sleep(1)
+                time.sleep(5)
                 break
 
             # Let's give the system some time to catch up
@@ -291,7 +291,7 @@ def get_data(device, batch_size, max_data_transferred):
                 _LOGGER.info(
                     "%s - %s: Stopping because total_packets (%s) > %s",
                     device.name, device.address, total_packets, max_data_transferred)
-                time.sleep(1)
+                time.sleep(5)
                 break
 
     except Exception:
@@ -346,7 +346,6 @@ class PrismsDevice(object):
 
             _LOGGER.debug("Calling update on %s (%s - %s)", key, self.name, self.address)
             self.sensors[key].update(data)
-            time.sleep(0.05)
 
 
 class AirQualitySensor(Entity):
