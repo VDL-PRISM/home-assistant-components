@@ -37,7 +37,7 @@ Configuration variables:
 - **blacklist** (_Optional_): List of entities that should not be logged to InfluxDB.
 - **whitelist** (_Optional_): List of the entities (only) that will be logged to InfluxDB. If not set, all entities will be logged. Values set by the blacklist option will prevail.
 - **tags** (_Optional_): Tags to mark the data.
-- **batch_time** (_Optional_): The number of seconds between uploading data. This helps to group events together for more efficient uploads. Defaults to 0.
+- **batch_time** (_Optional_): The number of seconds between uploading data. This helps to group events together for more efficient uploads. Defaults to 10. Warning: If you set batch time to 0, data will not be saved persistently on disk.
 - **chunk_size** (_Optional_): The maximum amount of events that will be uploaded at once. Defaults to 500.
 
 Example configuration:
@@ -56,15 +56,15 @@ prisms_influxdb:
   - persistent_notification.invalid_config
 ```
 
-### Air Quality Sensor Component
+### PRISMS WiFi Sensor Component
 
-This component reads data from Dylos and AirU air quality sensors. Air quality sensors should be automatically discovered when using this component.
+This component is a generic sensor that connects with a PRISMS WiFi sensor. Sensors should be automatically discovered when using this component.
 
 To configure this component add the following to your Home Assistant `configuration.yaml` file:
 
 ```
 sensor:
-- platform: air_quality
+- platform: prisms_wifi_sensor
 ```
 
 Configuration variables:
@@ -75,3 +75,14 @@ Configuration variables:
 - **batch_size** (_Optional_): The amount of data points to request from a sensor. The default is 10 data points.
 - **max_data_transferred** (_Optional_): The amount of total data points to request from a sensor before it moves on to the next sensor. The default is 120.
 - **monitors** (_Optional_): If discovery does not work, monitor IP address can be provided as a list.
+
+Example configuration:
+
+```
+sensor:
+  - platform: prisms_wifi_sensor
+    update_time: 5
+    discover_time: 300
+    batch_size: 6
+    max_data_transferred: 30
+```
